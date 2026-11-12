@@ -42,6 +42,27 @@ typedef struct {
   float w[N_WEIGHTS];
 } Brain;
 
+// Genetics. Every animal carries a genome: a set of genes it was born with and keeps for
+// life. A baby gets each gene from one of its two parents (chosen at random), and now and
+// then a gene changes a little on the way (a mutation). So families look and behave alike,
+// and the tank slowly drifts towards whatever genes help animals survive and have babies.
+// The brain is part of the genome too: its 200-odd connection strengths are genes, passed
+// down in blocks (one block per hidden cell), like chromosomes.
+typedef struct {
+  float pace;      // swimming speed           0.85 .. 1.25
+  float slim;      // body shape: above 1 long and thin, below 1 short and round   0.8 .. 1.25
+  float bulk;      // build: how big it can grow at each step (and so its health and bite),
+                   // but bigger bodies burn more energy   0.85 .. 1.2
+  float thrift;    // burns less energy, but gets less growth out of each meal     0.8 .. 1.2
+  float boldness;  // how soon hunger turns it into a hunter                      0 .. 1
+  uint8_t r, g, b; // its colour
+  uint8_t marking; // its pattern: 0 plain, 1 a stripe across the middle, 2 a dark back
+} Genome;
+#define N_BODY_GENES 7 // pace, slim, bulk, thrift, boldness, colour, pattern
+
+// The colours of the ten founders: the animals the tank starts with.
+extern const uint8_t FOUNDER_COLOURS[N_FISH][3];
+
 typedef struct {
   float x, y;     // where it is
   float dx, dy;   // which way it faces (a direction of length 1)
@@ -53,9 +74,12 @@ typedef struct {
   float growth;   // "meal points" earned by eating; enough of them and it evolves
   float max_size; // the biggest its current species can be
 
-  // What it was born with ("genes"):
-  float pace;     // how fast a swimmer it is
-  float slim;     // body shape: above 1 long and thin, below 1 short and round
+  Genome g;       // what it was born with (see above)
+
+  // Its family. Every animal has its own number; the founders have none for parents.
+  uint16_t id, mum, dad; // 0 = no parent (a founder)
+  uint16_t gen;          // generation: founders are 0, their babies 1, and so on
+  uint8_t family;        // which founder's family line it belongs to (its mum's), 0 .. 9
 
   float score;    // how well it is doing; decides who has babies
   uint16_t eaten, wall_hits, bites, kills;
@@ -83,14 +107,14 @@ enum {
   EV_BIT,     // a bit b (a smaller fish it was hunting)
   EV_ATE,     // a ate b
   EV_STARVED, // a starved
-  EV_BORN,    // a was born, the baby of b
+  EV_BORN,    // a was born, the baby of b and c
   EV_LIKES,   // a has come to like b
   EV_HATES,   // a has come to hate b
   EV_FOUGHT,  // a attacked its enemy b, and b fought back
   EV_EVOLVED, // a evolved; b is the kind of animal it became
 };
 typedef struct {
-  uint8_t type, a, b;
+  uint8_t type, a, b, c; // c: for EV_BORN, the second parent
 } Event;
 #define MAX_EVENTS 24
 
@@ -105,6 +129,7 @@ typedef struct {
   uint8_t said[N_FISH][N_FISH]; // 1 = "a likes b" has been reported, 2 = "a hates b" (so it isn't repeated)
   uint32_t rng;
   uint32_t step;
+  uint16_t next_id; // the number the next animal born will get
   uint32_t total_eaten;  // food pellets eaten
   uint32_t total_killed; // fish eaten by other fish
   uint32_t total_starved;
@@ -127,11 +152,11 @@ void brain_instinct(Brain *brain);
 // Copy a parent's brain with small random changes. amount = how big the changes are.
 void brain_child(Brain *child, const Brain *parent, uint32_t *rng, float amount);
 
-void fish_random_genes(Fish *fish, uint32_t *rng);
+void fish_random_genes(Fish *fish, uint32_t *rng); // (keeps its colour and pattern)
 float fish_power(const Fish *fish); // how strong it is in a fight: size and species both count
 float fish_max_health(const Fish *fish); // bigger fish have more health...
 float fish_bite(const Fish *fish);       // ...and a harder bite; smaller fish, less of both
-#define HEALTH_LIMIT 2.1f // the most health any animal can have (a full-grown Whale)
+#define HEALTH_LIMIT 2.4f // the most health any animal can have (a full-grown, big-boned Whale)
 void tank_init(Tank *tank, uint32_t seed); // everyone starts as a Fry
 // For training only: turn the tank into a going concern, with animals at every step of
 // evolution, so brains get practice at being (and meeting) all of them.
@@ -141,8 +166,10 @@ int tank_add_food(Tank *tank, float x, float y);  // at a chosen spot
 // Bring fish i back as a newborn Fry somewhere random, forgetting its relationships.
 // Its brain and genes are left alone; change them afterwards if it should be a new fish.
 void tank_rebirth(Tank *tank, int i);
-// Fish `gone` has died: the fish doing best has a baby in its place, with a slightly
-// changed copy of its brain and genes. They start out as friends. Returns the parent.
+// Animal `gone` has died: the animal doing best has a baby in its place with a partner
+// (its best friend, or failing that the next best animal). The baby's genome is a mix of
+// both parents' with a few mutations. Parents and baby start out as friends.
+// Returns the first parent (the mum).
 int tank_replace(Tank *tank, int gone);
 void tank_step(Tank *tank); // move time forward one tick
 

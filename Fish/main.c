@@ -16,8 +16,11 @@
 //   Panel          A box per fish: name and evolution level (1-5), green bar = health,
 //                  orange bar = hunger, the colours of its best friend (+) and worst enemy (-).
 //   Log            Three lines reporting what happens, newest at the bottom.
-//   Babies         When a fish dies, the fish doing best has a baby: similar looks and a
-//                  slightly changed brain. So the tank's brains keep evolving.
+//   Genetics       Every animal has a genome (speed, shape, build, thrift, boldness,
+//                  colour, pattern, and its brain). When one dies, the animal doing best
+//                  has a baby with a partner; the baby gets each gene from one parent or
+//                  the other, with the odd mutation. So families look alike, and the tank
+//                  evolves. Each animal belongs to the family of one of the ten founders.
 //   Website        The website can show this very tank, live, over the USB cable (and
 //                  drop food into it). See "fish_mirror" below.
 
@@ -76,9 +79,8 @@ struct Mirror fish_mirror;
 // ---------- looks ----------
 
 // How each fish looks (the tank's rules don't care about this part).
+// (Its colour and pattern are genes: tank.fish[i].g.)
 static struct {
-  uint8_t tint[3];        // its own colour: red, green, blue
-  uint8_t marking;        // 0 plain, 1 a stripe across the middle, 2 a dark back
   char name[4];
   uint32_t tag[TAG_H];    // its nametag as a picture: one row of dots per number
   uint16_t tag_color;
@@ -111,10 +113,6 @@ static int log_changed;
 static uint32_t born;
 static int next_name;
 
-static const uint8_t STARTING_TINTS[N_FISH][3] = {
-  {255, 140, 0},  {255, 90, 90},   {255, 210, 60},  {120, 230, 120}, {90, 200, 255},
-  {200, 140, 255}, {255, 150, 200}, {240, 240, 240}, {160, 255, 220}, {180, 220, 90},
-};
 static const char NAMES[][4] = {
   "ADA", "BOB", "CAL", "DOT", "EVE", "FIN", "GUS", "HAL", "IVY", "JAX", "KIT", "LEO", "MAX",
   "NED", "OAK", "PIP", "RAY", "SAM", "TAD", "UMA", "VIC", "WES", "XAN", "YAZ", "ZOE",
@@ -141,7 +139,8 @@ static void give_name(int i) {
 
 // The nametag is a pale version of the fish's own colour.
 static void tint_changed(int i) {
-  look[i].tag_color = RGB((look[i].tint[0] + 255) / 2, (look[i].tint[1] + 255) / 2, (look[i].tint[2] + 255) / 2);
+  const Genome *g = &tank.fish[i].g;
+  look[i].tag_color = RGB((g->r + 255) / 2, (g->g + 255) / 2, (g->b + 255) / 2);
 }
 
 // ---------- the log ----------
@@ -355,8 +354,8 @@ static inline int body_color(int i, float u, float v) {
   int part = animal_part(tank.fish[i].kind, u, v);
   if (!part) return -1;
   if (part == 1) { // its own markings go on plain body only
-    if (look[i].marking == 1 && u > -0.4f && u < 1.2f) return art[i].paint[3];
-    if (look[i].marking == 2 && v < -0.9f) return art[i].paint[3];
+    if (tank.fish[i].g.marking == 1 && u > -0.4f && u < 1.2f) return art[i].paint[3];
+    if (tank.fish[i].g.marking == 2 && v < -0.9f) return art[i].paint[3];
   }
   return art[i].paint[part - 1];
 }
@@ -391,12 +390,12 @@ static void prepare(int i, float blend) {
   art[i].dx = hx / len;
   art[i].dy = hy / len;
 
-  art[i].stretch_u = 1.0f / (f->size * f->slim);
-  art[i].stretch_v = f->slim / f->size;
+  art[i].stretch_u = 1.0f / (f->size * f->g.slim);
+  art[i].stretch_v = f->g.slim / f->size;
 
   int cx = (int)art[i].x, cy = (int)art[i].y;
   // The animal fits in a square this far around its middle.
-  float along = REACH_ALONG[f->kind] * f->size * f->slim, across = REACH_ACROSS[f->kind] * f->size / f->slim;
+  float along = REACH_ALONG[f->kind] * f->size * f->g.slim, across = REACH_ACROSS[f->kind] * f->size / f->g.slim;
   int reach = (int)(along > across ? along : across) + 2;
   // The nametag sits above the fish, or below it when the fish is at the top of the tank.
   int above = cy - reach - TAG_H - 1 >= 0;
@@ -408,7 +407,7 @@ static void prepare(int i, float blend) {
   art[i].now = r;
 
   float glow = 0.45f + 0.55f * f->energy;
-  int red = (int)((float)look[i].tint[0] * glow), green = (int)((float)look[i].tint[1] * glow), blue = (int)((float)look[i].tint[2] * glow);
+  int red = (int)((float)f->g.r * glow), green = (int)((float)f->g.g * glow), blue = (int)((float)f->g.b * glow);
   if (art[i].flash) { red = 255; green = 40; blue = 40; }
   art[i].paint[0] = RGB(red, green, blue);
   art[i].paint[1] = RGB(10, 10, 30);
@@ -487,7 +486,7 @@ static void draw_food(void) {
 
 // ---------- the panel under the tank ----------
 
-static uint16_t tint_color(int i) { return RGB(look[i].tint[0], look[i].tint[1], look[i].tint[2]); }
+static uint16_t tint_color(int i) { return RGB(tank.fish[i].g.r, tank.fish[i].g.g, tank.fish[i].g.b); }
 
 // A little square in fish `who`'s colour, or an empty slot if who is -1.
 static void swatch(int x, int y, int who) {
@@ -572,13 +571,9 @@ static void show_number(int x, uint32_t n) {
 
 // ---------- what happened this tick ----------
 
-// A baby has taken a dead fish's place in the tank's rules; now give it its looks.
-static void dress_baby(int baby, int parent) {
-  for (int c = 0; c < 3; c++) { // like its parent, in a slightly different shade
-    int shade = (int)look[parent].tint[c] + (int)(rng_next(&tank.rng) % 61u) - 30;
-    look[baby].tint[c] = (uint8_t)clamp_int(shade, 70, 255);
-  }
-  look[baby].marking = (rng_next(&tank.rng) % 8u) ? look[parent].marking : (uint8_t)(rng_next(&tank.rng) % 3u);
+// A baby has taken a dead animal's place in the tank's rules (its colour and pattern come
+// from its genes); now give it a name.
+static void dress_baby(int baby) {
   give_name(baby);
   tint_changed(baby);
 
@@ -601,8 +596,14 @@ static void report(const Event *e) {
     case EV_FOUGHT:  log_add(a, " FOUGHT ", b); break;
     case EV_EVOLVED: log_add(a, e->b == K_ORCA ? " EVOLVED INTO AN " : " EVOLVED INTO A ", b); break;
     case EV_BORN:
-      dress_baby(e->a, e->b); // the dead fish's name is used up to here; now the baby gets its own
-      log_add(look[e->a].name, " WAS BORN TO ", b);
+      dress_baby(e->a); // the dead animal's name is used up to here; now the baby gets its own
+      {
+        char parents[8]; // "ADA+BOB"
+        for (int c = 0; c < 3; c++) { parents[c] = look[e->b].name[c]; parents[4 + c] = look[e->c].name[c]; }
+        parents[3] = '+';
+        parents[7] = 0;
+        log_add(look[e->a].name, " WAS BORN TO ", parents);
+      }
       break;
   }
 }
@@ -613,8 +614,8 @@ static void mirror_update(void) {
   fish_view(&tank, born, fish_mirror.view);
   for (int i = 0; i < N_FISH; i++) {
     uint8_t *l = fish_mirror.looks[i];
-    l[0] = look[i].tint[0]; l[1] = look[i].tint[1]; l[2] = look[i].tint[2];
-    l[3] = look[i].marking;
+    l[0] = tank.fish[i].g.r; l[1] = tank.fish[i].g.g; l[2] = tank.fish[i].g.b;
+    l[3] = tank.fish[i].g.marking;
     l[4] = (uint8_t)look[i].name[0]; l[5] = (uint8_t)look[i].name[1]; l[6] = (uint8_t)look[i].name[2];
     l[7] = (uint8_t)art[i].flash;
   }
@@ -669,7 +670,7 @@ int main(void) {
   RCC_AHB1ENR |= 1u << 0; // port A, for the button
 
   fish_mirror.magic = 0x48534946u; // "FISH"
-  fish_mirror.version = 3;
+  fish_mirror.version = 4;
 
   tank_init(&tank, 0x1234ABCDu);
   scenery_init();
@@ -686,8 +687,6 @@ int main(void) {
 
   for (int i = 0; i < N_FISH; i++) {
     for (int w = 0; w < N_WEIGHTS; w++) tank.fish[i].brain.w[w] = FISH_BRAINS[i][w];
-    for (int c = 0; c < 3; c++) look[i].tint[c] = STARTING_TINTS[i][c];
-    look[i].marking = (uint8_t)(i % 3);
     give_name(i);
     tint_changed(i);
     art[i].last_health = tank.fish[i].health;

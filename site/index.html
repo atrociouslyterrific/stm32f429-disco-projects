@@ -85,6 +85,43 @@
   /* live tank */
   .tank-wrap { display: flex; justify-content: center; }
   canvas#brain { width: 100%; height: 460px; display: block; }
+  canvas#brain-genes { width: 100%; height: 30px; display: block; border-radius: 6px; }
+  .gene { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) 92px; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .gene:last-child { border-bottom: 0; }
+  .gname b { display: block; font-size: .92rem; }
+  .gname .about { color: var(--muted); font-size: .8rem; }
+  .gtrack { position: relative; height: 8px; border-radius: 4px; background: var(--track); margin-top: 14px; }
+  .gval { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; background: var(--series-1); }
+  .gpar { position: absolute; top: -16px; transform: translateX(-50%); font-size: .7rem; font-weight: 700; color: var(--text); line-height: 1; }
+  .gpar::after { content: ""; display: block; width: 1px; height: 6px; background: var(--muted); margin: 1px auto 0; }
+  .gword { color: var(--muted); font-size: .85rem; text-align: right; }
+  .gswatches { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .85rem; color: var(--muted); }
+  .gsw { display: inline-flex; align-items: center; gap: 6px; }
+  .dot.big { width: 16px; height: 16px; }
+  .tree-row { display: grid; grid-template-columns: 96px 1fr; gap: 10px; align-items: start; padding: 6px 0; }
+  .tree-label { color: var(--muted); font-size: .85rem; padding-top: 6px; }
+  .tree-items { display: flex; flex-wrap: wrap; gap: 8px; }
+  .node { border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-size: .82rem; min-width: 104px; }
+  .node .role { color: var(--muted); font-size: .72rem; }
+  .node .nm { font-weight: 700; display: flex; align-items: center; gap: 4px; }
+  .node .sub { color: var(--muted); font-size: .74rem; }
+  .node.gone { opacity: .6; border-style: dashed; }
+  .node.unknown { opacity: .45; }
+  .fam-wrap { position: relative; }
+  .fam { display: grid; grid-template-columns: 150px minmax(0, 1fr) 190px; gap: 12px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
+  .fam:last-child { border-bottom: 0; }
+  .fam-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: .9rem; min-width: 0; }
+  .fam-name span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fam .spark { width: 100%; height: 30px; display: block; }
+  .fam-stats { color: var(--muted); font-size: .8rem; text-align: right; font-variant-numeric: tabular-nums; }
+  .fam.out .fam-name { color: var(--muted); font-weight: 400; }
+  @media (max-width: 560px) {
+    .gene { grid-template-columns: 1fr 70px; }
+    .gene .gname { grid-column: 1 / -1; }
+    .fam { grid-template-columns: 1fr auto; }
+    .fam .spark { grid-column: 1 / -1; grid-row: 2; }
+    .tree-row { grid-template-columns: 1fr; gap: 4px; }
+  }
   select { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
   canvas#tank { width: 100%; max-width: 480px; aspect-ratio: 240 / 224; border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
   .tank-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: center; margin: 12px 0; }
@@ -217,12 +254,52 @@
         <li><strong>Hunting:</strong> a hungry animal hunts clearly weaker ones. <strong>Fighting:</strong> enemies attack each other whatever their size, and both get hurt. Every bite is also a meal for the biter.</li>
         <li><strong>Size matters:</strong> the bigger an animal, the harder it bites and the more health it has. Hunters (Shark, Orca) bite harder still; the gentle giants (Ray, Whale) are tougher and can graze on plants.</li>
         <li><strong>Relationships:</strong> swimming together builds friendship; crowding, stealing food and attacks make enemies. Friends never attack each other.</li>
-        <li><strong>The cycle:</strong> when a fish dies, what's left enriches the water, which grows the plants, which feed the fish. The fish doing best has a baby in its place, with a slightly changed brain.</li>
+        <li><strong>The cycle:</strong> when an animal dies, what's left enriches the water, which grows the plants, which feed the animals.</li>
+        <li><strong>Genetics:</strong> the animal doing best has a baby in the dead one's place, with its best friend (or the next best animal). The baby gets a mix of both parents' genes, including their brains, with a few mutations, and joins its mum's family.</li>
       </ul>
     </details>
     <h3>What's been happening</h3>
     <ol class="events" id="events"><li class="muted">Nothing yet. Give them a minute.</li></ol>
     <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Genes and family</h2>
+    <p class="lead">Every animal carries a genome: genes it is born with and keeps for life. A baby gets each gene from one
+      parent or the other, and now and then a gene changes a little on the way (a mutation). So families look and behave
+      alike, and over time the tank drifts towards whatever genes help animals survive and have babies.</p>
+    <div class="tank-bar" style="justify-content:flex-start;margin-top:0">
+      <label for="gene-pick">Whose genes:</label>
+      <select id="gene-pick"></select>
+    </div>
+    <h3>Body genes</h3>
+    <p class="muted small" style="margin:0 0 6px">The bar is this animal; <b>M</b> and <b>D</b> mark its mum's and dad's values.</p>
+    <div id="gene-rows"></div>
+    <h3>Brain genes</h3>
+    <canvas id="brain-genes" aria-label="Brain genes as a strip: one stripe per connection"></canvas>
+    <p class="muted small" style="margin:6px 0 0">Its brain is part of its genome too: one stripe per connection strength
+      (blue positive, orange negative, stronger = darker). A baby gets each hidden cell, with all its connections, whole from
+      one parent, like a chromosome.</p>
+    <h3>Family tree</h3>
+    <div id="family-tree"></div>
+  </div>
+
+  <div class="card">
+    <h2>Families</h2>
+    <p class="lead">The tank starts with ten founders, each the head of a family. Every baby joins its mum's family. Each
+      chart shows how many of that family are alive over time (all on the same scale, 0 to 10); families that lose every
+      member die out for good.</p>
+    <p id="families-summary" class="small" style="margin:0 0 8px"></p>
+    <div class="fam-wrap"><div id="families"></div><div class="tip" id="fam-tip"></div></div>
+    <details>
+      <summary>Show the families as a table</summary>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Family</th><th class="num">Alive</th><th class="num">Seen</th><th class="num">Generations</th></tr></thead>
+          <tbody id="families-table"></tbody>
+        </table>
+      </div>
+    </details>
   </div>
 
   <div class="card">
@@ -809,7 +886,7 @@ setInterval(refresh, 60000);
 // the browser), or a real board, read live over USB (see the module script above).
 
 const TANK_W = 240, TANK_H = 224;
-const STARTING_TINTS = [
+const FOUNDER_COLOURS = [ // as in fish_sim.c
   [255, 140, 0], [255, 90, 90], [255, 210, 60], [120, 230, 120], [90, 200, 255],
   [200, 140, 255], [255, 150, 200], [240, 240, 240], [160, 255, 220], [180, 220, 90],
 ];
@@ -839,7 +916,13 @@ async function startTank() {
   const FISH_AT = sim.web_fish_at(), FOOD_AT = sim.web_food_at(), LIKE_AT = sim.web_like_at(), PLANT_AT = sim.web_plant_at();
   const VIEW = sim.web_view_size();
   const simState = () => new Float32Array(sim.memory.buffer, sim.web_state(), VIEW);
-  const simEvents = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 3);
+  const simEvents = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 4);
+  // An animal's colour and pattern are genes, so they come from the tank's numbers; only
+  // its name is kept here.
+  const looksFrom = (s, names) => names.map((l, i) => {
+    const o = FISH_AT + i * PER;
+    return { name: l.name, tint: [s[o + 25], s[o + 26], s[o + 27]], marking: Math.round(s[o + 28]) };
+  });
 
   // What is on screen right now: the numbers (laid out as in fish_view.h), each fish's looks,
   // and how many frames of red "ouch" flash each has left.
@@ -848,7 +931,7 @@ async function startTank() {
   for (let i = 0; i < N; i++) brainPick.append(el("option", "…"));
   let board = null; // when showing a real board: { s, look, flash, prev, at, gap }
   let before = null; // the browser tank's numbers one tick ago, for drawing in-between frames
-  const HEALTH_LIMIT = 2.1; // the most health any animal can have (as in fish_sim.h)
+  const HEALTH_LIMIT = 2.4; // the most health any animal can have (as in fish_sim.h)
 
   const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
   const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
@@ -947,7 +1030,8 @@ async function startTank() {
     look = [];
     nextName = 0;
     ticks = 0;
-    for (let i = 0; i < N; i++) look.push({ tint: STARTING_TINTS[i % STARTING_TINTS.length].slice(), marking: i % 3, name: NAMES[nextName++ % NAMES.length] });
+    for (let i = 0; i < N; i++) look.push({ name: NAMES[nextName++ % NAMES.length] });
+    resetFamilies();
     lastHealth = new Array(N).fill(HEALTH_LIMIT);
     flash = new Array(N).fill(0);
     before = null;
@@ -959,7 +1043,7 @@ async function startTank() {
     ticks++;
     const ev = simEvents(), s = simState();
     for (let n = 0; n < ev[0]; n++) {
-      const type = ev[1 + n * 3], a = ev[2 + n * 3], b = ev[3 + n * 3];
+      const type = ev[1 + n * 4], a = ev[2 + n * 4], b = ev[3 + n * 4], c = ev[4 + n * 4];
       const A = title(look[a].name), B = type === EV_EVOLVED ? "" : title(look[b].name);
       if (type === EV_BIT) logEvent("🦷", A + " bit " + B, clock());
       else if (type === EV_ATE) logEvent("🍽️", A + " ate " + B, clock());
@@ -968,15 +1052,11 @@ async function startTank() {
       else if (type === EV_HATES) logEvent("💢", A + " now hates " + B, clock());
       else if (type === EV_FOUGHT) logEvent("⚔️", A + " fought " + B, clock());
       else if (type === EV_EVOLVED) logEvent("✨", A + " evolved into " + (SPECIES[b] === "Orca" ? "an " : "a ") + SPECIES[b], clock());
-      else if (type === EV_BORN) { // the fish doing best had a baby, in the dead fish's place
-        look[a] = {
-          tint: look[b].tint.map(v => Math.min(255, Math.max(70, v + Math.floor(Math.random() * 61) - 30))),
-          marking: Math.random() < 0.125 ? Math.floor(Math.random() * 3) : look[b].marking,
-          name: NAMES[nextName++ % NAMES.length],
-        };
+      else if (type === EV_BORN) { // the animal doing best had a baby with a partner, in the dead one's place
+        look[a] = { name: NAMES[nextName++ % NAMES.length] };
         lastHealth[a] = HEALTH_LIMIT;
         flash[a] = 0;
-        logEvent("🐣", title(look[a].name) + " was born to " + B, clock());
+        logEvent("🐣", title(look[a].name) + " was born to " + B + " and " + title(look[c].name), clock());
       }
     }
     for (let i = 0; i < N; i++) {
@@ -1104,6 +1184,7 @@ async function startTank() {
 
       // Nametag: above the fish, or below it at the top of the tank (as on the board).
       const reach = Math.max(REACH_ALONG[kind] * size * slim, REACH_ACROSS[kind] * size / slim) + 2, above = y - reach - 8 >= 0;
+      // (sizes now go up to about 2.9 with a big build)
       ctx.fillStyle = rgb(looks[i].tint.map(v => (v + 255) / 2), 1);
       ctx.fillText(looks[i].name, Math.min(TANK_W - 10, Math.max(10, x)), above ? y - reach - 2 : y + reach + 8);
     }
@@ -1121,7 +1202,9 @@ async function startTank() {
       c.dot.style.background = rgb(looks[i].tint, 1);
       c.who.textContent = looks[i].name;
       c.extra.textContent = SPECIES[kind] + " (level " + level + ") · size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
-      if (brainPick.options[i].textContent !== looks[i].name + " the " + SPECIES[kind]) brainPick.options[i].textContent = looks[i].name + " the " + SPECIES[kind];
+      const label = looks[i].name + " the " + SPECIES[kind];
+      if (brainPick.options[i].textContent !== label) brainPick.options[i].textContent = label;
+      if (genePick.options[i].textContent !== label) genePick.options[i].textContent = label;
       const most = s[o + 14] || 1;
       c.health.style.width = Math.round(Math.max(0, health) / HEALTH_LIMIT * 100) + "%";
       c.healthCap.style.width = Math.round(most / HEALTH_LIMIT * 100) + "%";
@@ -1140,6 +1223,244 @@ async function startTank() {
         node.title = who < 0 ? word + ": none yet" : word + ": " + looks[who].name;
       }
     }
+    noteAnimals(s, looks);
+    drawGenome(s, looks);
+    drawFamilies();
+  }
+
+  // ----- genetics and families -----
+  // Everything seen in the tank is remembered here (by each animal's number), so its
+  // parents and grandparents can be shown after they have died, and families followed.
+  let registry = new Map(), familyHistory = [], lastSample = -1, boardStart = 0;
+  const genePick = $("gene-pick");
+  for (let i = 0; i < N; i++) genePick.append(el("option", "…"));
+  genePick.addEventListener("change", () => { brainPick.selectedIndex = genePick.selectedIndex; });
+  brainPick.addEventListener("change", () => { genePick.selectedIndex = brainPick.selectedIndex; });
+
+  function resetFamilies() { registry = new Map(); familyHistory = []; lastSample = -1; }
+  const nowSeconds = () => board ? (performance.now() - boardStart) / 1000 : ticks / 30;
+  const clockOf = (sec) => Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
+
+  // The body genes: where each lives in the tank's numbers, its range, and what it means.
+  const GENES = [
+    { at: 21, name: "Speed", lo: 0.85, hi: 1.25, words: ["slow", "average", "fast"], about: "How fast it swims." },
+    { at: 5, name: "Shape", lo: 0.8, hi: 1.25, words: ["round", "average", "long and thin"], about: "Its body shape." },
+    { at: 22, name: "Build", lo: 0.85, hi: 1.2, words: ["small", "average", "big-boned"], about: "How big it can grow: more health and a harder bite, but it eats more." },
+    { at: 23, name: "Thrift", lo: 0.8, hi: 1.2, words: ["hungry", "average", "thrifty"], about: "Burns less energy, but grows more slowly from each meal." },
+    { at: 24, name: "Boldness", lo: 0, hi: 1, words: ["timid", "average", "bold"], about: "How soon hunger turns it into a hunter." },
+  ];
+  const PATTERNS = ["plain", "striped", "dark back"];
+
+  function noteAnimals(s, looks) {
+    const now = nowSeconds(), alive = new Set();
+    for (let i = 0; i < N; i++) {
+      const o = FISH_AT + i * PER, id = Math.round(s[o + 16]);
+      if (!id) continue;
+      alive.add(id);
+      let r = registry.get(id);
+      if (!r) {
+        r = { id, mum: Math.round(s[o + 17]), dad: Math.round(s[o + 18]), family: Math.round(s[o + 19]), gen: Math.round(s[o + 20]), born: now, died: null };
+        registry.set(id, r);
+      }
+      r.name = looks[i].name;
+      r.tint = looks[i].tint;
+      r.marking = looks[i].marking;
+      r.kind = Math.round(s[o + 15]);
+      r.genes = GENES.map(g => s[o + g.at]);
+      r.slot = i;
+    }
+    for (const r of registry.values()) if (r.died === null && !alive.has(r.id)) { r.died = now; r.slot = -1; }
+
+    if (lastSample < 0 || now - lastSample >= 2) { // every two seconds: how many of each family are alive
+      lastSample = now;
+      const counts = new Array(N).fill(0);
+      for (let i = 0; i < N; i++) counts[Math.round(s[FISH_AT + i * PER + 19])]++;
+      familyHistory.push({ t: now, counts });
+      if (familyHistory.length > 300) familyHistory.shift();
+    }
+  }
+
+  const founderOf = (f) => { for (const r of registry.values()) if (r.gen === 0 && r.family === f) return r; return null; };
+  const familyName = (f) => { const r = founderOf(f); return r ? title(r.name) + "'s family" : "Family " + (f + 1); };
+  const familyColour = (f) => { const r = founderOf(f); return r ? r.tint : FOUNDER_COLOURS[f]; };
+
+  // One animal as a small card: colour, name, what it is, alive or not.
+  function node(r, role) {
+    const box = el("div", undefined, "node");
+    if (role) box.append(el("div", role, "role"));
+    if (!r) { box.classList.add("unknown"); box.append(el("div", "—", "nm")); return box; }
+    const top = el("div", undefined, "nm"), dot = el("span", undefined, "dot");
+    dot.style.background = rgb(r.tint, 1);
+    top.append(dot, document.createTextNode(" " + r.name));
+    box.append(top, el("div", SPECIES[r.kind] + " · gen " + r.gen + (r.died === null ? "" : " · died"), "sub"));
+    if (r.died !== null) box.classList.add("gone");
+    return box;
+  }
+
+  let shownGenome = "";
+  function drawGenome(s, looks) {
+    const i = Math.min(N - 1, Math.max(0, genePick.selectedIndex));
+    const o = FISH_AT + i * PER, id = Math.round(s[o + 16]), me = registry.get(id);
+    if (!me) return;
+    const mum = registry.get(me.mum), dad = registry.get(me.dad);
+
+    // Body genes: a bar for each, with its parents' values marked above it.
+    const rows = $("gene-rows");
+    const key = id + "|" + (mum ? 1 : 0) + (dad ? 1 : 0);
+    if (key !== shownGenome) { rows.replaceChildren(); shownGenome = key; }
+    if (!rows.children.length) {
+      GENES.forEach((g) => {
+        const row = el("div", undefined, "gene");
+        const label = el("div", undefined, "gname");
+        label.append(el("b", g.name), el("span", g.about, "about"));
+        const track = el("div", undefined, "gtrack");
+        track.append(el("div", undefined, "gval"));
+        for (const who of ["M", "D"]) { const m = el("span", who, "gpar"); m.hidden = true; track.append(m); }
+        row.append(label, track, el("div", "", "gword"));
+        rows.append(row);
+      });
+      const colour = el("div", undefined, "gene");
+      const cl = el("div", undefined, "gname");
+      cl.append(el("b", "Colour and pattern"), el("span", "What it looks like.", "about"));
+      colour.append(cl, el("div", undefined, "gswatches"), el("div", "", "gword"));
+      rows.append(colour);
+    }
+    GENES.forEach((g, k) => {
+      const row = rows.children[k], track = row.children[1];
+      const pos = (v) => Math.max(0, Math.min(100, (v - g.lo) / (g.hi - g.lo) * 100));
+      track.children[0].style.width = pos(me.genes[k]) + "%";
+      [mum, dad].forEach((p, n) => {
+        const mark = track.children[1 + n];
+        mark.hidden = !p;
+        if (p) { mark.style.left = pos(p.genes[k]) + "%"; mark.title = (n ? "Dad, " : "Mum, ") + p.name; }
+      });
+      const third = pos(me.genes[k]) < 33 ? 0 : pos(me.genes[k]) < 67 ? 1 : 2;
+      row.children[2].textContent = g.words[third];
+    });
+    const sw = rows.children[GENES.length].children[1];
+    sw.replaceChildren();
+    for (const [who, r] of [["", me], ["Mum", mum], ["Dad", dad]]) {
+      if (!r) continue;
+      const item = el("span", undefined, "gsw"), dot = el("span", undefined, "dot big");
+      dot.style.background = rgb(r.tint, 1);
+      item.append(dot, document.createTextNode(who ? who + ": " + PATTERNS[r.marking] : PATTERNS[r.marking]));
+      sw.append(item);
+    }
+
+    // Brain genes: one stripe per connection, blue for positive, orange for negative.
+    const bar = $("brain-genes"), bc = bar.getContext("2d");
+    const W = bar.clientWidth, H = bar.clientHeight, ratio = window.devicePixelRatio || 1;
+    if (W) {
+      if (bar.width !== Math.round(W * ratio)) { bar.width = Math.round(W * ratio); bar.height = Math.round(H * ratio); }
+      bc.setTransform(ratio, 0, 0, ratio, 0, 0);
+      bc.clearRect(0, 0, W, H);
+      if (board) {
+        bc.fillStyle = css("--muted"); bc.font = "12px -apple-system, sans-serif"; bc.textBaseline = "middle";
+        bc.fillText("Brain genes are shown for the browser's tank only.", 0, H / 2);
+      } else {
+        const n = N_HID * N_IN + N_OUT * (N_HID + 1), w = new Float32Array(sim.memory.buffer, sim.web_brain(i), n);
+        bc.fillStyle = css("--track"); bc.fillRect(0, 0, W, H);
+        const plus = css("--series-1"), minus = css("--series-2");
+        for (let k = 0; k < n; k++) {
+          bc.globalAlpha = Math.min(1, Math.abs(w[k]) / 1.5);
+          bc.fillStyle = w[k] >= 0 ? plus : minus;
+          bc.fillRect(k / n * W, 0, Math.max(1, W / n - 0.5), H);
+        }
+        bc.globalAlpha = 1;
+      }
+    }
+
+    // Family tree: grandparents, parents, itself, children.
+    const tree = $("family-tree");
+    tree.replaceChildren();
+    const level = (label, items) => {
+      const row = el("div", undefined, "tree-row");
+      row.append(el("div", label, "tree-label"));
+      const list = el("div", undefined, "tree-items");
+      items.forEach(x => list.append(x));
+      row.append(list);
+      tree.append(row);
+    };
+    if (me.gen === 0) {
+      level("Parents", [el("div", "A founder: one of the ten animals the tank started with. Its family is named after it.", "muted small")]);
+    } else {
+      const grand = [];
+      for (const [p, side] of [[mum, "Mum's"], [dad, "Dad's"]]) {
+        grand.push(node(p ? registry.get(p.mum) : null, side + " mum"), node(p ? registry.get(p.dad) : null, side + " dad"));
+      }
+      if (grand.some(g => !g.classList.contains("unknown"))) level("Grandparents", grand);
+      level("Parents", [node(mum, "Mum"), node(dad, "Dad")]);
+    }
+    level("It", [node(me, familyName(me.family))]);
+    const kids = [...registry.values()].filter(r => r.mum === id || r.dad === id);
+    level("Children", kids.length ? kids.slice(-8).map(k => node(k, "")) : [el("div", "None yet.", "muted small")]);
+  }
+
+  // The families: one small chart per founder's family, showing how many are alive over time.
+  function drawFamilies() {
+    const box = $("families");
+    if (!familyHistory.length) return;
+    const last = familyHistory[familyHistory.length - 1];
+    const counts = new Array(N).fill(0).map((_, f) => {
+      let born = 0, gens = 0;
+      for (const r of registry.values()) if (r.family === f) { born++; gens = Math.max(gens, r.gen); }
+      return { f, alive: last.counts[f], born, gens };
+    });
+    if (box.children.length !== N) {
+      box.replaceChildren();
+      for (let f = 0; f < N; f++) {
+        const row = el("div", undefined, "fam");
+        const label = el("div", undefined, "fam-name"), dot = el("span", undefined, "dot");
+        label.append(dot, el("span", ""));
+        const chart = svg("svg", { class: "spark", preserveAspectRatio: "none", viewBox: "0 0 300 30", role: "img" });
+        const area = svg("path", { fill: css("--series-1"), "fill-opacity": 0.22 });
+        const line = svg("path", { fill: "none", stroke: css("--series-1"), "stroke-width": 2, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" });
+        chart.append(area, line);
+        chart.addEventListener("pointermove", (ev) => familyTip(ev, f, chart));
+        chart.addEventListener("pointerleave", () => { $("fam-tip").style.display = "none"; });
+        row.append(label, chart, el("div", "", "fam-stats"));
+        box.append(row);
+      }
+    }
+    const t0 = familyHistory[0].t, t1 = Math.max(t0 + 1, last.t);
+    counts.forEach(({ f, alive, born, gens }) => {
+      const row = box.children[f], [label, chart, stats] = row.children;
+      label.children[0].style.background = rgb(familyColour(f), 1);
+      label.children[1].textContent = familyName(f);
+      const X = (t) => (t - t0) / (t1 - t0) * 300, Y = (c) => 29 - c / N * 27;
+      const pts = familyHistory.map(h => X(h.t).toFixed(1) + " " + Y(h.counts[f]).toFixed(1));
+      chart.children[1].setAttribute("d", "M" + pts.join(" L"));
+      chart.children[0].setAttribute("d", "M" + X(t0) + " 29 L" + pts.join(" L") + " L" + X(last.t).toFixed(1) + " 29 Z");
+      chart.setAttribute("aria-label", familyName(f) + ": " + alive + " alive now");
+      stats.textContent = alive ? alive + " alive · " + born + " seen · " + (gens + 1) + (gens ? " generations" : " generation")
+                                : "died out · " + born + " seen";
+      row.classList.toggle("out", !alive);
+    });
+    const going = counts.filter(c => c.alive).sort((a, b) => b.alive - a.alive);
+    $("families-summary").textContent = going.length + " of " + N + " families still going" +
+      (going.length ? ". Largest: " + familyName(going[0].f) + ", with " + going[0].alive + " alive." : ".") +
+      " Chart covers the last " + clockOf(t1 - t0) + ".";
+
+    const table = $("families-table");
+    table.replaceChildren();
+    for (const c of counts) {
+      const row = el("tr");
+      row.append(el("td", familyName(c.f)), el("td", String(c.alive), "num"), el("td", String(c.born), "num"), el("td", String(c.gens + 1), "num"));
+      table.append(row);
+    }
+  }
+
+  function familyTip(ev, f, chart) {
+    if (!familyHistory.length) return;
+    const r = chart.getBoundingClientRect(), t0 = familyHistory[0].t, t1 = Math.max(t0 + 1, familyHistory[familyHistory.length - 1].t);
+    const at = t0 + (ev.clientX - r.left) / r.width * (t1 - t0);
+    let near = familyHistory[0];
+    for (const h of familyHistory) if (Math.abs(h.t - at) < Math.abs(near.t - at)) near = h;
+    const tip = $("fam-tip"), host = $("families").getBoundingClientRect();
+    tip.replaceChildren(el("b", familyName(f)), el("div", clockOf(near.t) + " · " + near.counts[f] + " alive"));
+    tip.style.display = "block";
+    tip.style.left = Math.min(host.width - tip.offsetWidth, Math.max(0, ev.clientX - host.left + 12)) + "px";
+    tip.style.top = (r.top - host.top - 4) + "px";
   }
 
   // ----- a look inside one brain -----
@@ -1219,6 +1540,8 @@ async function startTank() {
   }
   setInterval(drawBrain, 100);
 
+  const s0 = () => simState();
+
   // Run the browser's tank at the board's pace (30 ticks a second) unless a real board is showing.
   let owed = 0, last = performance.now(), sinceRoster = 0;
   function frame(now) {
@@ -1230,7 +1553,7 @@ async function startTank() {
       while (owed >= 1000 / 30 && did < 4) { before = simState().slice(); step(); owed -= 1000 / 30; did++; }
       if (did === 4) owed = 0;
     }
-    const s = board ? board.s : simState(), looks = board ? board.look : look, flashing = board ? board.flash : flash;
+    const s = board ? board.s : simState(), looks = board ? board.look : looksFrom(s0(), look), flashing = board ? board.flash : flash;
     const was = board ? board.prev : before;
     const blend = board ? Math.min(1, (now - board.at) / board.gap) : (paused ? 1 : Math.min(1, owed / (1000 / 30)));
     draw(was, s, blend, looks, flashing);
@@ -1255,7 +1578,7 @@ async function startTank() {
     feedBoard: null, // set while a board is showing: (x, y) => drops food on the board
     showBoard(snapshot) { // { s, look, flash }
       const now = performance.now();
-      if (!board) { clearLog("Waiting for something to happen on the board…"); }
+      if (!board) { clearLog("Waiting for something to happen on the board…"); resetFamilies(); boardStart = now; }
       snapshot.prev = board ? board.s : null;
       snapshot.gap = board ? Math.min(400, Math.max(30, now - board.at)) : 100; // how long between reports
       snapshot.at = now;
@@ -1287,7 +1610,7 @@ async function startTank() {
   buildRoster();
   reset();
   setMode();
-  updateRoster(simState(), look);
+  updateRoster(simState(), looksFrom(simState(), look));
   $("tank-note").textContent = "Brains from this build's training (" + sim.web_generations().toLocaleString() + " generations). " +
     "Each visit starts a new random browser tank, so no two runs are the same.";
   requestAnimationFrame(frame);

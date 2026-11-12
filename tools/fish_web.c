@@ -28,16 +28,17 @@ void *memset(void *dst, int value, __SIZE_TYPE__ n) {
 
 static Tank tank;
 static float state[VIEW_SIZE];
-static int events[1 + MAX_EVENTS * 3]; // how many things happened this tick, then (type, a, b) for each
+static int events[1 + MAX_EVENTS * 4]; // how many things happened this tick, then (type, a, b, c) for each
 static unsigned born;
 
 static void publish(void) {
   fish_view(&tank, born, state);
   events[0] = tank.n_events;
   for (int e = 0; e < tank.n_events; e++) {
-    events[1 + e * 3] = tank.events[e].type;
-    events[2 + e * 3] = tank.events[e].a;
-    events[3 + e * 3] = tank.events[e].b;
+    events[1 + e * 4] = tank.events[e].type;
+    events[2 + e * 4] = tank.events[e].a;
+    events[3 + e * 4] = tank.events[e].b;
+    events[4 + e * 4] = tank.events[e].c;
   }
 }
 

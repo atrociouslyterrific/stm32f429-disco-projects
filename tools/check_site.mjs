@@ -45,7 +45,7 @@ const N = sim.web_n_fish(), PER = sim.web_per_fish(), FISH_AT = sim.web_fish_at(
 const KINDS = ["Fry", "Squid", "Turtle", "Shark", "Ray", "Orca", "Whale"];
 const EVENTS = ["bit", "ate", "starved", "born", "likes", "hates", "fought", "evolved"];
 const state = () => new Float32Array(sim.memory.buffer, sim.web_state(), VIEW);
-const events = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 3);
+const events = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 4);
 
 // Let a tank live for five minutes of tank time, with someone feeding it now and then.
 sim.web_init(12345);
@@ -56,8 +56,10 @@ for (let t = 0; t < TICKS; t++) {
   sim.web_step();
   const ev = events();
   for (let n = 0; n < ev[0]; n++) {
-    seenEvents[ev[1 + n * 3]]++;
-    if (ev[1 + n * 3] === 7) everKinds.add(ev[3 + n * 3]);
+    const type = ev[1 + n * 4];
+    seenEvents[type]++;
+    if (type === 7) everKinds.add(ev[3 + n * 4]);
+    if (type === 3 && (ev[3 + n * 4] === ev[2 + n * 4] || ev[4 + n * 4] === ev[2 + n * 4])) problem("a baby was listed as its own parent");
   }
 }
 const s = state();
@@ -73,6 +75,26 @@ console.log("  food eaten " + s[1] + ", animals eaten " + s[2] + ", starved " + 
 console.log("  events: " + EVENTS.map((e, n) => e + " " + seenEvents[n]).join(", "));
 console.log("  living now: " + KINDS.map((k, n) => now[n] + " " + k).join(", "));
 console.log("  kinds evolved into at some point: " + ([...everKinds].sort().map(k => KINDS[k]).join(", ") || "none"));
+
+// Genetics and families
+const GENE_RANGES = [[21, 0.85, 1.25, "speed"], [5, 0.8, 1.25, "shape"], [22, 0.85, 1.2, "build"], [23, 0.8, 1.2, "thrift"], [24, 0, 1, "boldness"]];
+const ids = new Set();
+let deepest = 0;
+for (let i = 0; i < N; i++) {
+  const o = FISH_AT + i * PER;
+  for (const [at, lo, hi, name] of GENE_RANGES) if (!(s[o + at] >= lo - 1e-4 && s[o + at] <= hi + 1e-4)) problem(name + " gene out of range: " + s[o + at]);
+  for (const at of [25, 26, 27]) if (!(s[o + at] >= 70 && s[o + at] <= 255)) problem("colour gene out of range: " + s[o + at]);
+  if (!(s[o + 28] >= 0 && s[o + 28] <= 2)) problem("pattern gene out of range: " + s[o + 28]);
+  const id = s[o + 16], gen = s[o + 20], family = s[o + 19];
+  if (ids.has(id)) problem("two animals share the number " + id);
+  ids.add(id);
+  if (!(family >= 0 && family < N)) problem("family out of range: " + family);
+  if (gen > 0 && (!s[o + 17] || !s[o + 18])) problem("a baby without two parents");
+  deepest = Math.max(deepest, gen);
+}
+const families = new Set([...Array(N).keys()].map(i => s[FISH_AT + i * PER + 19]));
+console.log("  genetics: deepest generation alive " + deepest + ", families still going " + families.size + " of " + N);
+if (seenEvents[3] > 0 && deepest === 0) problem("babies were born but nobody alive is past generation 0");
 
 // The brain viewer reads these directly; make sure they are where the page expects.
 const nIn = sim.web_n_in(), nHid = sim.web_n_hid(), nOut = sim.web_n_out();

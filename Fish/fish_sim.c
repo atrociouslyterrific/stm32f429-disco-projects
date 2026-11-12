@@ -21,7 +21,7 @@ static const float STAGE_SIZE[N_STAGES]  = {0.9f, 1.25f, 1.6f, 2.0f, 2.4f};  // 
 
 // Hunting and fighting
 #define PREY_RATIO  0.8f // a fish can hunt one whose power is below this fraction of its own
-#define BITE_HUNGER 0.55f // ...but only when its energy is below this (full fish don't hunt)
+// ...but only when hungry enough (full fish don't hunt): see hunt_hunger(), set by its genes
 #define FRIEND      0.3f // nobody attacks a fish it likes this much
 #define ENEMY      -0.3f // a fish it dislikes this much, it will fight whatever its size
 #define BITE_DAMAGE 0.35f
@@ -63,6 +63,7 @@ static void note(Tank *t, int type, int a, int b) {
   e->type = (uint8_t)type;
   e->a = (uint8_t)a;
   e->b = (uint8_t)b;
+  e->c = (uint8_t)b;
 }
 
 // ---------- brains ----------
@@ -134,10 +135,21 @@ void brain_child(Brain *child, const Brain *parent, uint32_t *rng, float amount)
 
 // ---------- setting up ----------
 
+const uint8_t FOUNDER_COLOURS[N_FISH][3] = {
+  {255, 140, 0},  {255, 90, 90},   {255, 210, 60},  {120, 230, 120}, {90, 200, 255},
+  {200, 140, 255}, {255, 150, 200}, {240, 240, 240}, {160, 255, 220}, {180, 220, 90},
+};
+
 void fish_random_genes(Fish *f, uint32_t *rng) {
-  f->pace = 0.85f + 0.4f * rng_unit(rng);  // 0.85 .. 1.25
-  f->slim = 0.8f + 0.45f * rng_unit(rng);  // 0.8 .. 1.25
+  f->g.pace = 0.85f + 0.4f * rng_unit(rng);
+  f->g.slim = 0.8f + 0.45f * rng_unit(rng);
+  f->g.bulk = 0.85f + 0.35f * rng_unit(rng);
+  f->g.thrift = 0.8f + 0.4f * rng_unit(rng);
+  f->g.boldness = rng_unit(rng);
 }
+
+// How hungry it has to be before it hunts: bold animals hunt sooner.
+static float hunt_hunger(const Fish *f) { return 0.4f + 0.3f * f->g.boldness; }
 
 float fish_power(const Fish *f) { return f->size * (1.0f + 0.2f * (float)f->stage); }
 static int gentle(const Fish *f) { return f->kind == K_RAY || f->kind == K_WHALE; }
@@ -180,7 +192,7 @@ void tank_rebirth(Tank *t, int i) {
   f->growth = 0.0f;
   f->size = BABY_SIZE;
   f->health = fish_max_health(f);
-  f->max_size = STAGE_SIZE[0];
+  f->max_size = STAGE_SIZE[0] * f->g.bulk;
   f->age = 0;
   f->bite_wait = 0;
   f->dead = 0;
@@ -192,25 +204,84 @@ static float nudge(Tank *t, float value, float amount, float lo, float hi) {
   return clamp(value + rng_normal(&t->rng) * amount, lo, hi);
 }
 
+// One gene from one of two parents, sometimes changed a little on the way.
+static float inherit(Tank *t, float from_mum, float from_dad, float lo, float hi) {
+  float v = (rng_next(&t->rng) & 1u) ? from_mum : from_dad;
+  if (rng_unit(&t->rng) < 0.3f) v += rng_normal(&t->rng) * 0.08f * (hi - lo); // a mutation
+  return clamp(v, lo, hi);
+}
+
+static uint8_t inherit_colour(Tank *t, uint8_t from_mum, uint8_t from_dad) {
+  int v = (rng_next(&t->rng) & 1u) ? from_mum : from_dad;
+  if (rng_unit(&t->rng) < 0.5f) v += (int)(rng_normal(&t->rng) * 18.0f);
+  return (uint8_t)(v < 70 ? 70 : v > 255 ? 255 : v);
+}
+
 int tank_replace(Tank *t, int gone) {
-  int parent = gone == 0 ? 1 : 0;
+  // The mum: whoever is doing best.
+  int mum_i = gone == 0 ? 1 : 0;
   for (int j = 0; j < N_FISH; j++)
-    if (j != gone && !t->fish[j].dead && t->fish[j].score > t->fish[parent].score) parent = j;
-  const Fish *mum = &t->fish[parent];
+    if (j != gone && !t->fish[j].dead && t->fish[j].score > t->fish[mum_i].score) mum_i = j;
+  // The dad: the mum's best friend if she has a good one, otherwise the next best animal.
+  int dad_i = -1;
+  float fondest = 0.2f;
+  for (int j = 0; j < N_FISH; j++)
+    if (j != gone && j != mum_i && !t->fish[j].dead && t->like[mum_i][j] > fondest) { fondest = t->like[mum_i][j]; dad_i = j; }
+  if (dad_i < 0)
+    for (int j = 0; j < N_FISH; j++)
+      if (j != gone && j != mum_i && !t->fish[j].dead && (dad_i < 0 || t->fish[j].score > t->fish[dad_i].score)) dad_i = j;
+  if (dad_i < 0) dad_i = mum_i;
+  const Fish *mum = &t->fish[mum_i], *dad = &t->fish[dad_i];
 
   tank_rebirth(t, gone);
   Fish *baby = &t->fish[gone];
-  brain_child(&baby->brain, &mum->brain, &t->rng, 0.15f);
-  baby->pace = nudge(t, mum->pace, 0.05f, 0.85f, 1.25f);
-  baby->slim = nudge(t, mum->slim, 0.05f, 0.8f, 1.25f);
+
+  // The genome: each gene from one parent or the other, with the odd mutation.
+  baby->g.pace = inherit(t, mum->g.pace, dad->g.pace, 0.85f, 1.25f);
+  baby->g.slim = inherit(t, mum->g.slim, dad->g.slim, 0.8f, 1.25f);
+  baby->g.bulk = inherit(t, mum->g.bulk, dad->g.bulk, 0.85f, 1.2f);
+  baby->g.thrift = inherit(t, mum->g.thrift, dad->g.thrift, 0.8f, 1.2f);
+  baby->g.boldness = inherit(t, mum->g.boldness, dad->g.boldness, 0.0f, 1.0f);
+  baby->g.r = inherit_colour(t, mum->g.r, dad->g.r);
+  baby->g.g = inherit_colour(t, mum->g.g, dad->g.g);
+  baby->g.b = inherit_colour(t, mum->g.b, dad->g.b);
+  baby->g.marking = rng_unit(&t->rng) < 0.1f ? (uint8_t)(rng_next(&t->rng) % 3u)
+                  : (rng_next(&t->rng) & 1u) ? mum->g.marking : dad->g.marking;
+  baby->max_size = STAGE_SIZE[0] * baby->g.bulk;
+
+  // The brain: each hidden cell, with all its connections, comes whole from one parent
+  // (a block of genes that work together). Then a few connections mutate.
+  for (int h = 0; h < N_HID; h++) {
+    const Brain *from = (rng_next(&t->rng) & 1u) ? &mum->brain : &dad->brain;
+    for (int k = 0; k < N_IN; k++) W_IN(&baby->brain, h, k) = W_IN(from, h, k);
+    for (int o = 0; o < N_OUT; o++) W_OUT(&baby->brain, o, h) = W_OUT(from, o, h);
+  }
+  for (int o = 0; o < N_OUT; o++) W_OUT(&baby->brain, o, N_HID) = W_OUT(&mum->brain, o, N_HID);
+  for (int w = 0; w < N_WEIGHTS; w++)
+    if (rng_unit(&t->rng) < 0.25f) baby->brain.w[w] += rng_normal(&t->rng) * 0.1f;
+
+  // Its family
+  baby->id = t->next_id++;
+  if (t->next_id == 0) t->next_id = 1; // (after 65,535 births the numbers go round again)
+  baby->mum = mum->id;
+  baby->dad = dad->id;
+  baby->family = mum->family;
+  baby->gen = (uint16_t)((mum->gen > dad->gen ? mum->gen : dad->gen) + 1);
+
   baby->score = 0.0f;
   baby->eaten = baby->wall_hits = baby->bites = baby->kills = 0;
-  t->like[gone][parent] = 0.5f;
-  t->like[parent][gone] = 0.5f;
-  t->said[gone][parent] = 1; // (no need to announce that a baby and its parent get on)
-  t->said[parent][gone] = 1;
-  note(t, EV_BORN, gone, parent);
-  return parent;
+  for (int k = 0; k < 2; k++) {
+    int parent = k ? dad_i : mum_i;
+    t->like[gone][parent] = 0.5f;
+    t->like[parent][gone] = 0.5f;
+    t->said[gone][parent] = 1; // (no need to announce that a baby and its parents get on)
+    t->said[parent][gone] = 1;
+  }
+  if (t->n_events < MAX_EVENTS) {
+    Event *e = &t->events[t->n_events++];
+    e->type = EV_BORN; e->a = (uint8_t)gone; e->b = (uint8_t)mum_i; e->c = (uint8_t)dad_i;
+  }
+  return mum_i;
 }
 
 int tank_add_food(Tank *t, float x, float y) {
@@ -237,11 +308,18 @@ void tank_init(Tank *t, uint32_t seed) {
   t->total_eaten = t->total_killed = t->total_starved = 0;
   t->n_events = 0;
   t->nutrients = 0.3f;
+  t->next_id = N_FISH + 1;
   for (int i = 0; i < N_FISH; i++) {
     Fish *f = &t->fish[i];
-    tank_rebirth(t, i);
     fish_random_genes(f, &t->rng);
+    f->g.r = FOUNDER_COLOURS[i][0]; f->g.g = FOUNDER_COLOURS[i][1]; f->g.b = FOUNDER_COLOURS[i][2];
+    f->g.marking = (uint8_t)(i % 3);
+    tank_rebirth(t, i);
     brain_instinct(&f->brain);
+    f->id = (uint16_t)(i + 1); // the founders: each starts a family of its own
+    f->mum = f->dad = 0;
+    f->gen = 0;
+    f->family = (uint8_t)i;
     // Everyone starts as a Fry, not all quite the same size.
     f->size = BABY_SIZE + 0.15f * rng_unit(&t->rng);
     f->health = fish_max_health(f);
@@ -266,7 +344,7 @@ void tank_scatter_stages(Tank *t) {
     f->stage = luck < 0.35f ? 0 : luck < 0.65f ? 1 : luck < 0.85f ? 2 : 3;
     f->kind = kind_for(f->stage, rng_unit(&t->rng) < 0.5f);
     f->growth = STAGE_NEEDS[f->stage];
-    f->max_size = STAGE_SIZE[f->stage];
+    f->max_size = STAGE_SIZE[f->stage] * f->g.bulk;
     f->size = f->max_size - 0.2f * rng_unit(&t->rng);
     f->health = fish_max_health(f);
   }
@@ -428,13 +506,13 @@ static void feel(Tank *t, int who, int about, float change) {
 // Fish i has eaten something worth `points` meal points. Enough of them and it evolves.
 static void fed(Tank *t, int i, float points, float size_gain) {
   Fish *f = &t->fish[i];
-  f->growth += points;
+  f->growth += points * (2.0f - f->g.thrift); // thrifty animals get less growth from a meal
   while (f->stage < N_STAGES - 1 && f->growth >= STAGE_NEEDS[f->stage + 1]) {
     f->stage++;
     // Hunter or gentle? Decided at the third step by how it has lived so far, and kept after.
     int is_hunter = f->stage == 3 ? (f->bites + 2 * f->kills >= 2) : hunter(f);
     f->kind = kind_for(f->stage, is_hunter);
-    f->max_size = STAGE_SIZE[f->stage];
+    f->max_size = STAGE_SIZE[f->stage] * f->g.bulk;
     f->health = fish_max_health(f); // evolving heals
     f->score += 5.0f;
     note(t, EV_EVOLVED, i, f->kind);
@@ -468,7 +546,7 @@ static void feast(Tank *t, int winner) {
 static void try_bite(Tank *t, int i) {
   Fish *me = &t->fish[i];
   const float my_power = fish_power(me);
-  int hungry = me->energy < BITE_HUNGER;
+  int hungry = me->energy < hunt_hunger(me);
   int target = -1, target_is_prey = 0;
   float target_d2 = 1e9f;
   for (int j = 0; j < N_FISH; j++) {
@@ -601,8 +679,8 @@ void tank_step(Tank *t) {
     // Swim: ease towards the speed the brain asked for. Good swimmers are faster;
     // big fish and hurt fish are a little slower. A hungry fish that has decided to
     // bite and can see prey lunges, which is what lets a big fish catch a small one.
-    int hunting = bite[i] > 0.0f && f->energy < BITE_HUNGER && sees_prey[i];
-    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->pace * (1.1f - 0.1f * f->size) * (0.7f + 0.3f * f->health / fish_max_health(f));
+    int hunting = bite[i] > 0.0f && f->energy < hunt_hunger(f) && sees_prey[i];
+    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->g.pace * (1.1f - 0.1f * f->size) * (0.7f + 0.3f * f->health / fish_max_health(f));
     if (hunting) wanted *= LUNGE;
     f->speed += (wanted - f->speed) * 0.1f;
     f->x += f->dx * f->speed;
@@ -616,7 +694,7 @@ void tank_step(Tank *t) {
     if (f->y > SWIM_FLOOR)    { f->y = SWIM_FLOOR;    if (f->dy > 0.0f) f->dy = -f->dy; hit = 1; }
 
     // Hunger: bigger fish burn more.
-    f->energy -= DRAIN * (0.5f + 0.5f * f->size) + (hunting ? LUNGE_COST : 0.0f);
+    f->energy -= DRAIN * (0.5f + 0.5f * f->size) / f->g.thrift + (hunting ? LUNGE_COST : 0.0f);
     if (f->energy < 0.0f) f->energy = 0.0f;
 
     // Food pellets

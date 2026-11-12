@@ -23,9 +23,11 @@ sends it to the board.
   - Tap the water to drop food (the blue button drops some at random). The panel shows
     each animal's evolution level, health (green), hunger (orange), best friend (+) and
     worst enemy (-).
-  - When one dies, the best-doing animal has a baby with a slightly changed brain, so the
-    brains keep evolving on the board. The starting brains are trained on GitHub
-    (`tools/train_fish.c`).
+  - **Genetics**: every animal has a genome (speed, shape, build, thrift, boldness,
+    colour, pattern, and its brain). When one dies, the best-doing animal has a baby with
+    a partner; the baby gets each gene from one parent or the other, with the odd
+    mutation, and joins its mum's family. Each animal belongs to the family of one of the
+    ten founders. The starting brains are trained on GitHub (`tools/train_fish.c`).
 
 Each program is a folder with a `main.c`. Code they share lives in `common/`: the startup
 code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you can edit).
@@ -41,6 +43,9 @@ code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you 
 - **Show my board's tank**: with the board plugged in, the page reads the real tank out of
   the running chip over the USB cable and shows it live. Clicking the water then drops
   food into the board's tank.
+- **Genes and family**: any animal's genome (body genes against its parents', and its
+  brain genes as a strip), and its family tree.
+- **Families**: a small chart per founder's family showing how many are alive over time.
 - **Inside a brain**: one animal's neural network, drawn live as it thinks.
 - **Training progress**: the score per generation across every training run, updating
   live while a run is going.
