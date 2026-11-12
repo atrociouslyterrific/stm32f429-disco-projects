@@ -83,7 +83,8 @@ let deepest = 0;
 for (let i = 0; i < N; i++) {
   const o = FISH_AT + i * PER;
   for (const [at, lo, hi, name] of GENE_RANGES) if (!(s[o + at] >= lo - 1e-4 && s[o + at] <= hi + 1e-4)) problem(name + " gene out of range: " + s[o + at]);
-  for (const at of [25, 26, 27]) if (!(s[o + at] >= 70 && s[o + at] <= 255)) problem("colour gene out of range: " + s[o + at]);
+  for (const at of [25, 26, 27]) if (!(s[o + at] >= 0 && s[o + at] <= 255)) problem("colour gene out of range: " + s[o + at]);
+  if (Math.max(s[o + 25], s[o + 26], s[o + 27]) < 139) problem("an animal too dark to see: " + [25, 26, 27].map(k => s[o + k]));
   if (!(s[o + 28] >= 0 && s[o + 28] <= 2)) problem("pattern gene out of range: " + s[o + 28]);
   const id = s[o + 16], gen = s[o + 20], family = s[o + 19];
   if (animalIds.has(id)) problem("two animals share the number " + id);

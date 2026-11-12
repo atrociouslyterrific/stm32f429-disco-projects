@@ -211,7 +211,17 @@ static float inherit(Tank *t, float from_mum, float from_dad, float lo, float hi
 static uint8_t inherit_colour(Tank *t, uint8_t from_mum, uint8_t from_dad) {
   int v = (rng_next(&t->rng) & 1u) ? from_mum : from_dad;
   if (rng_unit(&t->rng) < 0.5f) v += (int)(rng_normal(&t->rng) * 18.0f);
-  return (uint8_t)(v < 70 ? 70 : v > 255 ? 255 : v);
+  return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+}
+
+// An animal too dark to see against the water gets its colour lifted (keeping its hue).
+static void keep_visible(Genome *g) {
+  int top = g->r > g->g ? (g->r > g->b ? g->r : g->b) : (g->g > g->b ? g->g : g->b);
+  if (top >= 140) return;
+  if (top < 1) { g->r = g->g = g->b = 140; return; }
+  g->r = (uint8_t)(g->r * 140 / top);
+  g->g = (uint8_t)(g->g * 140 / top);
+  g->b = (uint8_t)(g->b * 140 / top);
 }
 
 int tank_replace(Tank *t, int gone) {
@@ -242,6 +252,7 @@ int tank_replace(Tank *t, int gone) {
   baby->g.r = inherit_colour(t, mum->g.r, dad->g.r);
   baby->g.g = inherit_colour(t, mum->g.g, dad->g.g);
   baby->g.b = inherit_colour(t, mum->g.b, dad->g.b);
+  keep_visible(&baby->g);
   baby->g.marking = rng_unit(&t->rng) < 0.1f ? (uint8_t)(rng_next(&t->rng) % 3u)
                   : (rng_next(&t->rng) & 1u) ? mum->g.marking : dad->g.marking;
   baby->max_size = STAGE_SIZE[0] * baby->g.bulk;
