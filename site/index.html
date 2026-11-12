@@ -258,6 +258,7 @@
       <button id="pause" type="button">Pause</button>
       <button id="feed" type="button">Drop food</button>
       <button id="restart" type="button">New tank</button>
+      <button id="skip" type="button" title="Run the tank for a minute in an instant">Skip ahead 1 min</button>
       <span class="counter">Fed <b id="c-fed">0</b></span>
       <span class="counter">Born <b id="c-born">0</b></span>
       <span class="counter">Eaten <b id="c-eaten">0</b></span>
@@ -1875,6 +1876,7 @@ async function startTank() {
     const on = !!board;
     $("pause").hidden = on;
     $("restart").hidden = on;
+    $("skip").hidden = on;
     $("tank-title").textContent = on ? "Your board's tank, live" : "Live fish tank";
     $("tank-lead").textContent = on
       ? "This is the tank on your board right now, read over the USB cable about ten times a second. Click the water to drop food into the board's tank."
@@ -1914,6 +1916,16 @@ async function startTank() {
     else sim.web_feed_anywhere();
   });
   $("restart").addEventListener("click", reset);
+  // Run a minute of tank time at once (still writing down every animal, for the family tree).
+  $("skip").addEventListener("click", () => {
+    if (board) return;
+    for (let t = 0; t < 30 * 60; t++) {
+      step();
+      if (t % 10 === 0) noteAnimals(simState(), looksFrom(simState(), look));
+    }
+    before = null;
+    updateRoster(simState(), looksFrom(simState(), look));
+  });
   $("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "Play" : "Pause"; });
 
   buildRoster();
