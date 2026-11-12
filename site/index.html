@@ -1129,7 +1129,8 @@ async function startTank() {
   const HEALTH_LIMIT = 3.0; // the most health any animal can have (as in fish_sim.h)
 
   const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
-  const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
+  // "ADA II" -> "Ada II" (the name in ordinary letters; the number stays as it is)
+  const title = (name) => name.split(" ").map((w, i) => i ? w : w.charAt(0) + w.slice(1).toLowerCase()).join(" ");
 
   // ----- scenery: the same seafloor as on the board, drawn once -----
   const zigzag = (x, period) => Math.abs(x % period - Math.floor(period / 2));
