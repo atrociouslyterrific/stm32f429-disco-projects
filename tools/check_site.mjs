@@ -77,7 +77,8 @@ console.log("  living now: " + KINDS.map((k, n) => now[n] + " " + k).join(", "))
 console.log("  kinds evolved into at some point: " + ([...everKinds].sort().map(k => KINDS[k]).join(", ") || "none"));
 
 // Genetics and families
-const GENE_RANGES = [[21, 0.85, 1.25, "speed"], [5, 0.8, 1.25, "shape"], [22, 0.85, 1.2, "build"], [23, 0.8, 1.2, "thrift"], [24, 0, 1, "boldness"]];
+const GENE_RANGES = [[21, 0.85, 1.25, "speed"], [5, 0.8, 1.25, "shape"], [22, 0.85, 1.3, "build"], [23, 0.8, 1.2, "thrift"], [24, 0, 1, "boldness"],
+  [29, 0, 1, "sociability"], [30, 0, 1, "aggression"], [31, 0, 1, "loyalty"], [32, 0, 1, "curiosity"]];
 const animalIds = new Set();
 let deepest = 0;
 for (let i = 0; i < N; i++) {
@@ -98,10 +99,18 @@ console.log("  genetics: deepest generation alive " + deepest + ", families stil
 if (seenEvents[3] > 0 && deepest === 0) problem("babies were born but nobody alive is past generation 0");
 
 // The brain viewer reads these directly; make sure they are where the page expects.
-const nIn = sim.web_n_in(), nHid = sim.web_n_hid(), nOut = sim.web_n_out();
-const weights = new Float32Array(sim.memory.buffer, sim.web_brain(0), nHid * nIn + nOut * (nHid + 1));
+const nW = sim.web_n_weights(), nOut = sim.web_n_out();
+if (nW !== sim.web_n_h1() * sim.web_n_in() + sim.web_n_h2() * (sim.web_n_h1() + 1) + nOut * (sim.web_n_h2() + 1)) problem("brain size doesn't add up");
+const weights = new Float32Array(sim.memory.buffer, sim.web_brain(0), nW);
 const decided = new Float32Array(sim.memory.buffer, sim.web_decided(), N * nOut);
-if (![...weights, ...decided].every(Number.isFinite) || [...decided].some(v => Math.abs(v) > 1)) problem("brain numbers look wrong");
+const layer2 = new Float32Array(sim.memory.buffer, sim.web_thought2(), N * sim.web_n_h2());
+if (![...weights, ...decided, ...layer2].every(Number.isFinite) || [...decided, ...layer2].some(v => Math.abs(v) > 1)) problem("brain numbers look wrong");
+let biggest = 0;
+for (let i = 0; i < N; i++) biggest = Math.max(biggest, s[FISH_AT + i * PER + 4]);
+console.log("  brain: " + nW + " connections; biggest animal now size " + biggest.toFixed(2));
+
+const senseLabels = (html.match(/const SENSES = \[([\s\S]*?)\];/) || [, ""])[1].match(/"[^"]*"/g) || [];
+if (senseLabels.length !== sim.web_n_in()) problem("the page names " + senseLabels.length + " senses but the brain has " + sim.web_n_in());
 
 // 6. The board's "window" for the website must be the size the page will ask for.
 const status = JSON.parse(fs.readFileSync(path.join(site, "status.json"), "utf8"));

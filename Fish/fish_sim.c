@@ -13,17 +13,18 @@
 // Growing and evolving: eating earns meal points and adds size. Enough meal points and the
 // fish evolves into the next species, which can grow bigger and hits harder.
 #define BABY_SIZE   0.7f
-#define GROW_PELLET 0.05f
-#define GROW_BITE   0.06f
-#define GROW_KILL   0.2f
+#define GROW_PELLET 0.07f
+#define GROW_BITE   0.08f
+#define GROW_KILL   0.3f
 static const float STAGE_NEEDS[N_STAGES] = {0.0f, 2.0f, 5.0f, 10.0f, 18.0f}; // meal points to reach each step
-static const float STAGE_SIZE[N_STAGES]  = {0.9f, 1.25f, 1.6f, 2.0f, 2.4f};  // biggest size of each species
+static const float STAGE_SIZE[N_STAGES]  = {1.0f, 1.45f, 1.95f, 2.5f, 3.1f}; // biggest size at each step (times its build gene)
 
 // Hunting and fighting
 #define PREY_RATIO  0.8f // a fish can hunt one whose power is below this fraction of its own
 // ...but only when hungry enough (full fish don't hunt): see hunt_hunger(), set by its genes
 #define FRIEND      0.3f // nobody attacks a fish it likes this much
-#define ENEMY      -0.3f // a fish it dislikes this much, it will fight whatever its size
+// It fights an enemy whatever its size once its dislike passes a point set by its
+// aggression trait: from -0.55 (peaceful) to -0.1 (aggressive). See fight_point().
 #define BITE_DAMAGE 0.35f
 #define BITE_REST   60   // ticks between bites
 #define NEWBORN_SAFE 300 // ticks a newborn can't be attacked
@@ -69,8 +70,12 @@ static void note(Tank *t, int type, int a, int b) {
 // ---------- brains ----------
 
 // Weight from sense `in` to hidden cell `hid`, and from hidden cell `hid` to decision `out`.
-#define W_IN(brain, hid, in)   ((brain)->w[(hid) * N_IN + (in)])
-#define W_OUT(brain, out, hid) ((brain)->w[N_HID * N_IN + (out) * (N_HID + 1) + (hid)])
+// Weight from sense `in` to first-layer cell `h`; from first-layer cell `h` to second-layer
+// cell `m` (h = N_H1 is its resting level); from second-layer cell `m` to decision `o`
+// (m = N_H2 is its resting level).
+#define W_IN(brain, h, in) ((brain)->w[(h) * N_IN + (in)])
+#define W_MID(brain, m, h) ((brain)->w[N_H1 * N_IN + (m) * (N_H1 + 1) + (h)])
+#define W_OUT(brain, o, m) ((brain)->w[N_H1 * N_IN + N_H2 * (N_H1 + 1) + (o) * (N_H2 + 1) + (m)])
 
 // The senses, in order. "ahead" and "right" are from the fish's own point of view.
 enum {
@@ -85,6 +90,9 @@ enum {
   S_ENEMY_AHEAD, S_ENEMY_RIGHT,   // where the fish it dislikes are
   S_PREY_AHEAD, S_PREY_RIGHT,     // nearest fish weak enough to hunt
   S_THREAT_AHEAD, S_THREAT_RIGHT, // nearest fish strong enough to hunt it
+  S_FAMILY_AHEAD, S_FAMILY_RIGHT, // where its relatives (same family) are
+  S_MY_SIZE,                      // how strong it is (size and species)
+  S_BOLD, S_SOCIAL, S_AGGRO, S_LOYAL, S_CURIOUS, // its own personality, -1 .. 1
   S_ALWAYS_ON,                    // always 1 (lets a cell have a resting level)
 };
 enum { D_TURN, D_PUSH, D_BITE }; // the decisions
@@ -118,13 +126,21 @@ void brain_instinct(Brain *b) {
   // Hidden cell 6: "an enemy is right in front of me"
   W_IN(b, 6, S_ENEMY_AHEAD) = 2.0f;
   W_IN(b, 6, S_HURT)        = -2.0f; // ...but don't pick fights when already hurt
+  W_IN(b, 6, S_AGGRO)       = 0.8f;  // ...unless that's its nature
+  // Personality nudges the instincts too
+  W_IN(b, 0, S_FAMILY_RIGHT) = 0.4f; // stay near the family
+  W_IN(b, 5, S_BOLD)         = 0.8f; // bold animals bite sooner
+
+  // The second layer starts by simply passing those seven cells on (the other cells of both
+  // layers start blank, for training to put to use).
+  for (int k = 0; k < 7; k++) W_MID(b, k, k) = 2.0f;
 
   W_OUT(b, D_TURN, 0) = 2.0f;      // turn = steer...
   W_OUT(b, D_TURN, 1) = 1.0f;      // ...swerve if facing a wall
   W_OUT(b, D_TURN, 3) = 1.0f;      // ...or facing a threat
   W_OUT(b, D_PUSH, 2) = 1.5f;      // swim harder when it's worth hurrying
   W_OUT(b, D_PUSH, 4) = 1.0f;      // or when being chased
-  W_OUT(b, D_PUSH, N_HID) = -0.2f; // otherwise cruise
+  W_OUT(b, D_PUSH, N_H2) = -0.2f;  // otherwise cruise
   W_OUT(b, D_BITE, 5) = 2.0f;      // bite when hungry and prey is close
   W_OUT(b, D_BITE, 6) = 1.0f;      // or when an enemy is in my face
 }
@@ -143,10 +159,16 @@ const uint8_t FOUNDER_COLOURS[N_FISH][3] = {
 void fish_random_genes(Fish *f, uint32_t *rng) {
   f->g.pace = 0.85f + 0.4f * rng_unit(rng);
   f->g.slim = 0.8f + 0.45f * rng_unit(rng);
-  f->g.bulk = 0.85f + 0.35f * rng_unit(rng);
+  f->g.bulk = 0.85f + 0.45f * rng_unit(rng);
   f->g.thrift = 0.8f + 0.4f * rng_unit(rng);
   f->g.boldness = rng_unit(rng);
+  f->g.sociability = rng_unit(rng);
+  f->g.aggression = rng_unit(rng);
+  f->g.loyalty = rng_unit(rng);
+  f->g.curiosity = rng_unit(rng);
 }
+
+static float fight_point(const Fish *f) { return -0.55f + 0.45f * f->g.aggression; }
 
 // How hungry it has to be before it hunts: bold animals hunt sooner.
 static float hunt_hunger(const Fish *f) { return 0.4f + 0.3f * f->g.boldness; }
@@ -246,9 +268,13 @@ int tank_replace(Tank *t, int gone) {
   // The genome: each gene from one parent or the other, with the odd mutation.
   baby->g.pace = inherit(t, mum->g.pace, dad->g.pace, 0.85f, 1.25f);
   baby->g.slim = inherit(t, mum->g.slim, dad->g.slim, 0.8f, 1.25f);
-  baby->g.bulk = inherit(t, mum->g.bulk, dad->g.bulk, 0.85f, 1.2f);
+  baby->g.bulk = inherit(t, mum->g.bulk, dad->g.bulk, 0.85f, 1.3f);
   baby->g.thrift = inherit(t, mum->g.thrift, dad->g.thrift, 0.8f, 1.2f);
   baby->g.boldness = inherit(t, mum->g.boldness, dad->g.boldness, 0.0f, 1.0f);
+  baby->g.sociability = inherit(t, mum->g.sociability, dad->g.sociability, 0.0f, 1.0f);
+  baby->g.aggression = inherit(t, mum->g.aggression, dad->g.aggression, 0.0f, 1.0f);
+  baby->g.loyalty = inherit(t, mum->g.loyalty, dad->g.loyalty, 0.0f, 1.0f);
+  baby->g.curiosity = inherit(t, mum->g.curiosity, dad->g.curiosity, 0.0f, 1.0f);
   baby->g.r = inherit_colour(t, mum->g.r, dad->g.r);
   baby->g.g = inherit_colour(t, mum->g.g, dad->g.g);
   baby->g.b = inherit_colour(t, mum->g.b, dad->g.b);
@@ -257,16 +283,22 @@ int tank_replace(Tank *t, int gone) {
                   : (rng_next(&t->rng) & 1u) ? mum->g.marking : dad->g.marking;
   baby->max_size = STAGE_SIZE[0] * baby->g.bulk;
 
-  // The brain: each hidden cell, with all its connections, comes whole from one parent
-  // (a block of genes that work together). Then a few connections mutate.
-  for (int h = 0; h < N_HID; h++) {
+  // The brain: each cell, with all the connections coming into it, comes whole from one
+  // parent (a block of genes that work together, like a chromosome). Then a few mutate.
+  for (int h = 0; h < N_H1; h++) {
     const Brain *from = (rng_next(&t->rng) & 1u) ? &mum->brain : &dad->brain;
     for (int k = 0; k < N_IN; k++) W_IN(&baby->brain, h, k) = W_IN(from, h, k);
-    for (int o = 0; o < N_OUT; o++) W_OUT(&baby->brain, o, h) = W_OUT(from, o, h);
   }
-  for (int o = 0; o < N_OUT; o++) W_OUT(&baby->brain, o, N_HID) = W_OUT(&mum->brain, o, N_HID);
+  for (int m = 0; m < N_H2; m++) {
+    const Brain *from = (rng_next(&t->rng) & 1u) ? &mum->brain : &dad->brain;
+    for (int h = 0; h <= N_H1; h++) W_MID(&baby->brain, m, h) = W_MID(from, m, h);
+  }
+  for (int o = 0; o < N_OUT; o++) {
+    const Brain *from = (rng_next(&t->rng) & 1u) ? &mum->brain : &dad->brain;
+    for (int m = 0; m <= N_H2; m++) W_OUT(&baby->brain, o, m) = W_OUT(from, o, m);
+  }
   for (int w = 0; w < N_WEIGHTS; w++)
-    if (rng_unit(&t->rng) < 0.25f) baby->brain.w[w] += rng_normal(&t->rng) * 0.1f;
+    if (rng_unit(&t->rng) < 0.1f) baby->brain.w[w] += rng_normal(&t->rng) * 0.1f;
 
   // Its family
   baby->id = t->next_id++;
@@ -329,7 +361,7 @@ void tank_init(Tank *t, uint32_t seed) {
     f->gen = 0;
     f->family = (uint8_t)i;
     // Everyone starts as a Fry, not all quite the same size.
-    f->size = BABY_SIZE + 0.15f * rng_unit(&t->rng);
+    f->size = BABY_SIZE + 0.2f * rng_unit(&t->rng);
     f->health = fish_max_health(f);
     f->energy = 0.6f + 0.4f * rng_unit(&t->rng);
     f->age = NEWBORN_SAFE;
@@ -369,6 +401,7 @@ static float plant_top(const Plant *p) { return TANK_H - FLOOR_H - p->height * P
 // May `a` attack `b` at all? Never a friend, never a newborn.
 static int may_attack(const Tank *t, int a, int b) {
   const Fish *o = &t->fish[b];
+  if (t->fish[a].g.loyalty > 0.5f && t->fish[a].family == o->family) return 0; // never its own family
   return !o->dead && o->age >= NEWBORN_SAFE && t->like[a][b] < FRIEND;
 }
 
@@ -413,7 +446,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   const float my_power = fish_power(me);
   float cx = 0.0f, cy = 0.0f, hx = 0.0f, hy = 0.0f;
   float nearest = TOO_CLOSE * TOO_CLOSE, nx = 0.0f, ny = 0.0f;
-  float friend_x = 0.0f, friend_y = 0.0f, enemy_x = 0.0f, enemy_y = 0.0f;
+  float friend_x = 0.0f, friend_y = 0.0f, enemy_x = 0.0f, enemy_y = 0.0f, kin_x = 0.0f, kin_y = 0.0f;
   float prey_d2 = SIGHT * SIGHT, prey_x = 0.0f, prey_y = 0.0f;
   float threat_d2 = SIGHT * SIGHT, threat_x = 0.0f, threat_y = 0.0f;
   int count = 0, pressed = 0, prey = 0, threat = 0;
@@ -431,6 +464,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
     float feeling = t->like[i][j];
     if (feeling > 0.0f) { friend_x += ox * inv * feeling; friend_y += oy * inv * feeling; }
     else                { enemy_x -= ox * inv * feeling;  enemy_y -= oy * inv * feeling; }
+    if (o->family == me->family) { kin_x += ox * inv; kin_y += oy * inv; }
 
     if (d2 < prey_d2 && is_prey(t, i, j)) { prey_d2 = d2; prey_x = ox; prey_y = oy; prey = 1; }
     if (d2 < threat_d2 && my_power < fish_power(o) * PREY_RATIO) { threat_d2 = d2; threat_x = ox; threat_y = oy; threat = 1; }
@@ -478,6 +512,15 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   in[S_WALL_AHEAD] = wx * ax + wy * ay;
   in[S_WALL_RIGHT] = wx * rx + wy * ry;
 
+  in[S_FAMILY_AHEAD] = kin_x * ax + kin_y * ay;
+  in[S_FAMILY_RIGHT] = kin_x * rx + kin_y * ry;
+  in[S_MY_SIZE] = my_power / 5.0f;
+  in[S_BOLD] = me->g.boldness * 2.0f - 1.0f;
+  in[S_SOCIAL] = me->g.sociability * 2.0f - 1.0f;
+  in[S_AGGRO] = me->g.aggression * 2.0f - 1.0f;
+  in[S_LOYAL] = me->g.loyalty * 2.0f - 1.0f;
+  in[S_CURIOUS] = me->g.curiosity * 2.0f - 1.0f;
+
   in[S_HUNGER] = 1.0f - me->energy;
   in[S_HURT] = 1.0f - me->health / fish_max_health(me);
   in[S_ALWAYS_ON] = 1.0f;
@@ -485,15 +528,20 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
 
 // Run the brain: senses in, decisions out (each between -1 and 1). What the hidden cells
 // came to is handed back too, for anyone watching.
-static void think(const Brain *b, const float in[N_IN], float hidden[N_HID], float out[N_OUT]) {
-  for (int h = 0; h < N_HID; h++) {
+static void think(const Brain *b, const float in[N_IN], float h1[N_H1], float h2[N_H2], float out[N_OUT]) {
+  for (int h = 0; h < N_H1; h++) {
     float sum = 0.0f;
     for (int k = 0; k < N_IN; k++) sum += W_IN(b, h, k) * in[k];
-    hidden[h] = squash(sum);
+    h1[h] = squash(sum);
+  }
+  for (int m = 0; m < N_H2; m++) {
+    float sum = W_MID(b, m, N_H1);
+    for (int h = 0; h < N_H1; h++) sum += W_MID(b, m, h) * h1[h];
+    h2[m] = squash(sum);
   }
   for (int o = 0; o < N_OUT; o++) {
-    float sum = W_OUT(b, o, N_HID);
-    for (int h = 0; h < N_HID; h++) sum += W_OUT(b, o, h) * hidden[h];
+    float sum = W_OUT(b, o, N_H2);
+    for (int m = 0; m < N_H2; m++) sum += W_OUT(b, o, m) * h2[m];
     out[o] = squash(sum);
   }
 }
@@ -560,7 +608,7 @@ static void try_bite(Tank *t, int i) {
   for (int j = 0; j < N_FISH; j++) {
     if (j == i || !may_attack(t, i, j)) continue;
     int prey = hungry && is_prey(t, i, j);
-    int enemy = t->like[i][j] < ENEMY;
+    int enemy = t->like[i][j] < fight_point(me);
     if (!prey && !enemy) continue;
     const Fish *o = &t->fish[j];
     float ox = o->x - me->x, oy = o->y - me->y;
@@ -603,7 +651,10 @@ static void try_bite(Tank *t, int i) {
   for (int w = 0; w < N_FISH; w++) {
     if (w == i || w == target || t->fish[w].dead) continue;
     float ox = t->fish[w].x - other->x, oy = t->fish[w].y - other->y;
-    if (ox * ox + oy * oy < SIGHT * SIGHT) feel(t, w, i, t->like[w][target] > FRIEND ? -0.35f : -0.15f);
+    if (ox * ox + oy * oy < SIGHT * SIGHT) {
+      int close = t->like[w][target] > FRIEND || t->fish[w].family == other->family; // a friend or a relative
+      feel(t, w, i, (close ? -0.35f : -0.15f) * (0.5f + t->fish[w].g.loyalty));
+    }
   }
 
   if (other->health <= 0.0f) {
@@ -668,7 +719,7 @@ void tank_step(Tank *t) {
   // Everyone looks and decides first, then everyone moves, so no fish gets a head start.
   for (int i = 0; i < N_FISH; i++) {
     sense(t, i, t->seen[i], &with_group[i], &crowded[i], &sees_prey[i]);
-    think(&t->fish[i].brain, t->seen[i], t->thought[i], t->decided[i]);
+    think(&t->fish[i].brain, t->seen[i], t->thought[i], t->thought2[i], t->decided[i]);
     turn[i] = t->decided[i][D_TURN];
     push[i] = t->decided[i][D_PUSH];
     bite[i] = t->decided[i][D_BITE];
@@ -678,7 +729,7 @@ void tank_step(Tank *t) {
     Fish *f = &t->fish[i];
 
     // Turn: lean the heading towards the right (or left, if negative).
-    float lean = turn[i] * TURN_RATE;
+    float lean = turn[i] * TURN_RATE + rng_normal(&t->rng) * 0.05f * f->g.curiosity; // curious ones wander
     float nx = f->dx - f->dy * lean, ny = f->dy + f->dx * lean;
     float inv = 1.0f / root(nx * nx + ny * ny);
     f->dx = nx * inv;
@@ -688,7 +739,7 @@ void tank_step(Tank *t) {
     // big fish and hurt fish are a little slower. A hungry fish that has decided to
     // bite and can see prey lunges, which is what lets a big fish catch a small one.
     int hunting = bite[i] > 0.0f && f->energy < hunt_hunger(f) && sees_prey[i];
-    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->g.pace * (1.1f - 0.1f * f->size) * (0.7f + 0.3f * f->health / fish_max_health(f));
+    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->g.pace * (1.12f - 0.08f * f->size) * (0.7f + 0.3f * f->health / fish_max_health(f));
     if (hunting) wanted *= LUNGE;
     f->speed += (wanted - f->speed) * 0.1f;
     f->x += f->dx * f->speed;
@@ -702,7 +753,7 @@ void tank_step(Tank *t) {
     if (f->y > SWIM_FLOOR)    { f->y = SWIM_FLOOR;    if (f->dy > 0.0f) f->dy = -f->dy; hit = 1; }
 
     // Hunger: bigger fish burn more.
-    f->energy -= DRAIN * (0.5f + 0.5f * f->size) / f->g.thrift + (hunting ? LUNGE_COST : 0.0f);
+    f->energy -= DRAIN * (0.6f + 0.4f * f->size) / f->g.thrift + (hunting ? LUNGE_COST : 0.0f);
     if (f->energy < 0.0f) f->energy = 0.0f;
 
     // Food pellets
@@ -726,7 +777,7 @@ void tank_step(Tank *t) {
       }
     }
 
-    f->score += 0.004f * with_group[i];
+    f->score += 0.004f * with_group[i] * (0.5f + f->g.sociability);
     if (crowded[i]) f->score -= 0.01f;
     if (hit) { f->score -= 0.05f; f->wall_hits++; }
     if (f->age < 60000) f->age++;
@@ -763,7 +814,10 @@ void tank_step(Tank *t) {
       float d2 = ox * ox + oy * oy;
       if (d2 >= SIGHT * SIGHT) continue;
       if (d2 < 8.0f * 8.0f) { feel(t, i, j, -0.004f); feel(t, j, i, -0.004f); }
-      else if (a->dx * b->dx + a->dy * b->dy > 0.7f) { feel(t, i, j, 0.0015f); feel(t, j, i, 0.0015f); }
+      else if (a->dx * b->dx + a->dy * b->dy > 0.7f) { // sociable animals warm to company faster
+        feel(t, i, j, 0.0015f * (0.4f + 1.2f * a->g.sociability));
+        feel(t, j, i, 0.0015f * (0.4f + 1.2f * b->g.sociability));
+      }
     }
   }
   if (t->step % 16 == 0) { // feelings fade slowly if nothing keeps them going

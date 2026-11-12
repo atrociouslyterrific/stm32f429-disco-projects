@@ -23,8 +23,11 @@ sends it to the board.
   - Tap the water to drop food (the blue button drops some at random). The panel shows
     each animal's evolution level, health (green), hunger (orange), best friend (+) and
     worst enemy (-).
-  - **Genetics**: every animal has a genome (speed, shape, build, thrift, boldness,
-    colour, pattern, and its brain). When one dies, the best-doing animal has a baby with
+  - **Personality**: five traits in the genes (boldness, sociability, aggression,
+    loyalty, curiosity) change what an animal does, and its brain can sense them.
+  - **Brains** have two hidden layers (29 senses, 16 cells, 8 cells, 3 decisions).
+  - **Genetics**: every animal has a genome (speed, shape, build, thrift, the five
+    traits, colour, pattern, and its brain). When one dies, the best-doing animal has a baby with
     a partner; the baby gets each gene from one parent or the other, with the odd
     mutation, and joins its mum's family. Each animal belongs to the family of one of the
     ten founders. The starting brains are trained on GitHub (`tools/train_fish.c`).

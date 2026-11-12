@@ -30,13 +30,19 @@
 enum { K_FRY, K_SQUID, K_TURTLE, K_SHARK, K_RAY, K_ORCA, K_WHALE, N_KINDS };
 #define NOBODY N_FISH
 
-// Each fish's brain is a small neural network:
-//   21 senses -> 8 "hidden" cells -> 3 decisions (turn, how hard to swim, whether to bite)
-// The brain is nothing but a list of numbers (weights). Different numbers, different fish.
-#define N_IN  21
-#define N_HID 8
+// Each animal's brain is a neural network with two hidden layers:
+//   29 senses -> 16 cells -> 8 cells -> 3 decisions (turn, how hard to swim, whether to bite)
+// The senses include its own personality traits, so animals with the same brain still
+// behave differently. The brain is nothing but a list of numbers (weights): different
+// numbers, different animal.
+#define N_IN  29
+#define N_H1  16
+#define N_H2  8
 #define N_OUT 3
-#define N_WEIGHTS (N_HID * N_IN + N_OUT * (N_HID + 1))
+// Layer by layer: each first-layer cell has a weight per sense (the "always on" sense
+// gives it a resting level); each second-layer cell a weight per first-layer cell plus a
+// resting level; each decision a weight per second-layer cell plus a resting level.
+#define N_WEIGHTS (N_H1 * N_IN + N_H2 * (N_H1 + 1) + N_OUT * (N_H2 + 1))
 
 typedef struct {
   float w[N_WEIGHTS];
@@ -52,13 +58,19 @@ typedef struct {
   float pace;      // swimming speed           0.85 .. 1.25
   float slim;      // body shape: above 1 long and thin, below 1 short and round   0.8 .. 1.25
   float bulk;      // build: how big it can grow at each step (and so its health and bite),
-                   // but bigger bodies burn more energy   0.85 .. 1.2
+                   // but bigger bodies burn more energy   0.85 .. 1.3
   float thrift;    // burns less energy, but gets less growth out of each meal     0.8 .. 1.2
-  float boldness;  // how soon hunger turns it into a hunter                      0 .. 1
+  // Personality traits, 0 .. 1 each:
+  float boldness;    // how soon hunger turns it into a hunter
+  float sociability; // how much it wants company: friendships grow faster, schooling pays more
+  float aggression;  // how small a grudge it takes to start a fight
+  float loyalty;     // loyal animals never attack their own family, and take it hard when
+                     // a friend or relative is attacked
+  float curiosity;   // curious animals wander off the straight path, exploring
   uint8_t r, g, b; // its colour
   uint8_t marking; // its pattern: 0 plain, 1 a stripe across the middle, 2 a dark back
 } Genome;
-#define N_BODY_GENES 7 // pace, slim, bulk, thrift, boldness, colour, pattern
+#define N_BODY_GENES 11 // pace, slim, bulk, thrift, the five traits, colour, pattern
 
 // The colours of the ten founders: the animals the tank starts with.
 extern const uint8_t FOUNDER_COLOURS[N_FISH][3];
@@ -135,7 +147,7 @@ typedef struct {
   uint32_t total_starved;
   // A look inside the brains, for anyone who wants to watch them think: what each animal
   // sensed on the latest tick, what its hidden cells made of that, and what it decided.
-  float seen[N_FISH][N_IN], thought[N_FISH][N_HID], decided[N_FISH][N_OUT];
+  float seen[N_FISH][N_IN], thought[N_FISH][N_H1], thought2[N_FISH][N_H2], decided[N_FISH][N_OUT];
   // What happened during the latest tick (plus any babies born since). Emptied every tick.
   Event events[MAX_EVENTS];
   uint8_t n_events;
@@ -156,7 +168,7 @@ void fish_random_genes(Fish *fish, uint32_t *rng); // (keeps its colour and patt
 float fish_power(const Fish *fish); // how strong it is in a fight: size and species both count
 float fish_max_health(const Fish *fish); // bigger fish have more health...
 float fish_bite(const Fish *fish);       // ...and a harder bite; smaller fish, less of both
-#define HEALTH_LIMIT 2.4f // the most health any animal can have (a full-grown, big-boned Whale)
+#define HEALTH_LIMIT 3.0f // the most health any animal can have (a full-grown, big-boned Whale)
 void tank_init(Tank *tank, uint32_t seed); // everyone starts as a Fry
 // For training only: turn the tank into a going concern, with animals at every step of
 // evolution, so brains get practice at being (and meeting) all of them.

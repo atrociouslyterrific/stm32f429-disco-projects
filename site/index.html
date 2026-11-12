@@ -84,12 +84,13 @@
 
   /* live tank */
   .tank-wrap { display: flex; justify-content: center; }
-  canvas#brain { width: 100%; height: 460px; display: block; }
+  canvas#brain { width: 100%; height: 560px; display: block; }
   canvas#brain-genes { width: 100%; height: 30px; display: block; border-radius: 6px; }
   .gene { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) 92px; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
   .gene:last-child { border-bottom: 0; }
   .gname b { display: block; font-size: .92rem; }
   .gname .about { color: var(--muted); font-size: .8rem; }
+  .gene.trait .gname b::after { content: "trait"; margin-left: 6px; font-size: .68rem; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
   .gtrack { position: relative; height: 8px; border-radius: 4px; background: var(--track); margin-top: 14px; }
   .gval { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; background: var(--series-1); }
   .gpar { position: absolute; top: -16px; transform: translateX(-50%); font-size: .7rem; font-weight: 700; color: var(--text); line-height: 1; }
@@ -255,6 +256,7 @@
         <li><strong>Size matters:</strong> the bigger an animal, the harder it bites and the more health it has. Hunters (Shark, Orca) bite harder still; the gentle giants (Ray, Whale) are tougher and can graze on plants.</li>
         <li><strong>Relationships:</strong> swimming together builds friendship; crowding, stealing food and attacks make enemies. Friends never attack each other.</li>
         <li><strong>The cycle:</strong> when an animal dies, what's left enriches the water, which grows the plants, which feed the animals.</li>
+        <li><strong>Personality:</strong> every animal has five traits in its genes: boldness, sociability, aggression, loyalty and curiosity. They change what it does (loyal animals never attack their own family, aggressive ones fight over smaller grudges) and its brain can sense them.</li>
         <li><strong>Genetics:</strong> the animal doing best has a baby in the dead one's place, with its best friend (or the next best animal). The baby gets a mix of both parents' genes, including their brains, with a few mutations, and joins its mum's family.</li>
       </ul>
     </details>
@@ -272,8 +274,10 @@
       <label for="gene-pick">Whose genes:</label>
       <select id="gene-pick"></select>
     </div>
-    <h3>Body genes</h3>
-    <p class="muted small" style="margin:0 0 6px">The bar is this animal; <b>M</b> and <b>D</b> mark its mum's and dad's values.</p>
+    <h3>Body and personality</h3>
+    <p class="muted small" style="margin:0 0 6px">The bar is this animal; <b>M</b> and <b>D</b> mark its mum's and dad's values.
+      The first four genes shape its body; the five marked “trait” are its personality, which it can also sense, so it
+      shapes how its brain behaves.</p>
     <div id="gene-rows"></div>
     <h3>Brain genes</h3>
     <canvas id="brain-genes" aria-label="Brain genes as a strip: one stripe per connection"></canvas>
@@ -305,12 +309,13 @@
   <div class="card">
     <h2>Inside a brain</h2>
     <p class="lead">Every animal in the tank is steered by its own small neural network. This is one of them, thinking,
-      right now: what it senses on the left, eight hidden cells in the middle, what it decides on the right.</p>
+      right now: what it senses on the left (including its own personality), two layers of hidden cells (16, then 8)
+      in the middle, and what it decides on the right.</p>
     <div class="tank-bar" style="justify-content:flex-start;margin-top:0">
       <label for="brain-pick">Whose brain:</label>
       <select id="brain-pick"></select>
     </div>
-    <canvas id="brain" height="460" aria-label="Diagram of one animal's neural network with live activity"></canvas>
+    <canvas id="brain" height="560" aria-label="Diagram of one animal's neural network with live activity"></canvas>
     <div class="key">
       <span><i style="background:var(--series-1)"></i>Blue: a positive signal ("more", "yes", "to the right")</span>
       <span><i style="background:var(--series-2)"></i>Orange: a negative signal ("less", "no", "to the left")</span>
@@ -554,7 +559,7 @@ async function startMirror() {
       await new Promise(r => setTimeout(r, 150));
       continue;
     }
-    if (data.getUint32(4, true) !== 3) {
+    if (data.getUint32(4, true) !== 5) { // the version number Fish/main.c puts in fish_mirror
       await stopMirror("The board is running a different version of Fish than this page (build __BUILD__). Click Flash beside Fish, then try again.");
       return;
     }
@@ -897,7 +902,9 @@ const SPECIES = ["Fry", "Squid", "Turtle", "Shark", "Ray", "Orca", "Whale"]; // 
 const REACH_ALONG = [6.5, 8.5, 7.0, 9.5, 9.0, 9.5, 10.0], REACH_ACROSS = [2.8, 3.5, 5.5, 5.2, 5.5, 5.6, 4.9];
 const SENSES = ["Food ahead", "Food to the right", "Group ahead", "Group to the right", "Group's heading, ahead", "Group's heading, right",
   "Crowded ahead", "Crowded right", "Wall ahead", "Wall to the right", "Hunger", "Hurt", "Friends ahead", "Friends right",
-  "Enemies ahead", "Enemies right", "Prey ahead", "Prey right", "Threat ahead", "Threat right", "Always on"];
+  "Enemies ahead", "Enemies right", "Prey ahead", "Prey right", "Threat ahead", "Threat right",
+  "Family ahead", "Family to the right", "My strength", "I'm bold", "I'm sociable", "I'm aggressive", "I'm loyal", "I'm curious",
+  "Always on"];
 const DECISIONS = ["Turn right", "Swim harder", "Bite"];
 // As in fish_sim.h:
 const EV_BIT = 0, EV_ATE = 1, EV_STARVED = 2, EV_BORN = 3, EV_LIKES = 4, EV_HATES = 5, EV_FOUGHT = 6, EV_EVOLVED = 7;
@@ -931,7 +938,7 @@ async function startTank() {
   for (let i = 0; i < N; i++) brainPick.append(el("option", "…"));
   let board = null; // when showing a real board: { s, look, flash, prev, at, gap }
   let before = null; // the browser tank's numbers one tick ago, for drawing in-between frames
-  const HEALTH_LIMIT = 2.4; // the most health any animal can have (as in fish_sim.h)
+  const HEALTH_LIMIT = 3.0; // the most health any animal can have (as in fish_sim.h)
 
   const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
   const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
@@ -1201,7 +1208,7 @@ async function startTank() {
       const kind = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 15]))), level = Math.round(s[o + 12]) + 1;
       c.dot.style.background = rgb(looks[i].tint, 1);
       c.who.textContent = looks[i].name;
-      c.extra.textContent = SPECIES[kind] + " (level " + level + ") · size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
+      c.extra.textContent = SPECIES[kind] + " (level " + level + ") · size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "") + " · " + traitWords(s, o);
       const label = looks[i].name + " the " + SPECIES[kind];
       if (brainPick.options[i].textContent !== label) brainPick.options[i].textContent = label;
       if (genePick.options[i].textContent !== label) genePick.options[i].textContent = label;
@@ -1245,10 +1252,23 @@ async function startTank() {
   const GENES = [
     { at: 21, name: "Speed", lo: 0.85, hi: 1.25, words: ["slow", "average", "fast"], about: "How fast it swims." },
     { at: 5, name: "Shape", lo: 0.8, hi: 1.25, words: ["round", "average", "long and thin"], about: "Its body shape." },
-    { at: 22, name: "Build", lo: 0.85, hi: 1.2, words: ["small", "average", "big-boned"], about: "How big it can grow: more health and a harder bite, but it eats more." },
+    { at: 22, name: "Build", lo: 0.85, hi: 1.3, words: ["small", "average", "big-boned"], about: "How big it can grow: more health and a harder bite, but it eats more." },
     { at: 23, name: "Thrift", lo: 0.8, hi: 1.2, words: ["hungry", "average", "thrifty"], about: "Burns less energy, but grows more slowly from each meal." },
-    { at: 24, name: "Boldness", lo: 0, hi: 1, words: ["timid", "average", "bold"], about: "How soon hunger turns it into a hunter." },
+    // Personality traits
+    { at: 24, name: "Boldness", lo: 0, hi: 1, words: ["timid", "average", "bold"], about: "How soon hunger turns it into a hunter.", trait: true },
+    { at: 29, name: "Sociability", lo: 0, hi: 1, words: ["loner", "average", "sociable"], about: "Warms to company faster, and likes swimming in a group.", trait: true },
+    { at: 30, name: "Aggression", lo: 0, hi: 1, words: ["peaceful", "average", "aggressive"], about: "How small a grudge it takes to start a fight.", trait: true },
+    { at: 31, name: "Loyalty", lo: 0, hi: 1, words: ["fickle", "average", "loyal"], about: "Loyal animals never attack their own family, and hold a grudge for an attack on a friend or relative.", trait: true },
+    { at: 32, name: "Curiosity", lo: 0, hi: 1, words: ["cautious", "average", "curious"], about: "Curious animals wander off the straight path, exploring.", trait: true },
   ];
+  // The two traits that stand out most in an animal, as words ("bold, loner").
+  function traitWords(s, o) {
+    return GENES.filter(g => g.trait)
+      .map(g => ({ g, v: s[o + g.at] }))
+      .filter(t => Math.abs(t.v - 0.5) > 0.2)
+      .sort((a, b) => Math.abs(b.v - 0.5) - Math.abs(a.v - 0.5))
+      .slice(0, 2).map(t => t.g.words[t.v > 0.5 ? 2 : 0]).join(", ") || "even-tempered";
+  }
   const PATTERNS = ["plain", "striped", "dark back"];
 
   function noteAnimals(s, looks) {
@@ -1310,7 +1330,7 @@ async function startTank() {
     if (key !== shownGenome) { rows.replaceChildren(); shownGenome = key; }
     if (!rows.children.length) {
       GENES.forEach((g) => {
-        const row = el("div", undefined, "gene");
+        const row = el("div", undefined, g.trait ? "gene trait" : "gene");
         const label = el("div", undefined, "gname");
         label.append(el("b", g.name), el("span", g.about, "about"));
         const track = el("div", undefined, "gtrack");
@@ -1358,7 +1378,7 @@ async function startTank() {
         bc.fillStyle = css("--muted"); bc.font = "12px -apple-system, sans-serif"; bc.textBaseline = "middle";
         bc.fillText("Brain genes are shown for the browser's tank only.", 0, H / 2);
       } else {
-        const n = N_HID * N_IN + N_OUT * (N_HID + 1), w = new Float32Array(sim.memory.buffer, sim.web_brain(i), n);
+        const n = sim.web_n_weights(), w = new Float32Array(sim.memory.buffer, sim.web_brain(i), n);
         bc.fillStyle = css("--track"); bc.fillRect(0, 0, W, H);
         const plus = css("--series-1"), minus = css("--series-2");
         for (let k = 0; k < n; k++) {
@@ -1464,7 +1484,8 @@ async function startTank() {
   }
 
   // ----- a look inside one brain -----
-  const N_IN = sim.web_n_in(), N_HID = sim.web_n_hid(), N_OUT = sim.web_n_out();
+  // Two hidden layers: senses -> first layer -> second layer -> decisions.
+  const N_IN = sim.web_n_in(), N_H1 = sim.web_n_h1(), N_H2 = sim.web_n_h2(), N_OUT = sim.web_n_out(), N_W = sim.web_n_weights();
   const brainCanvas = $("brain"), bctx = brainCanvas.getContext("2d");
   function drawBrain() {
     const W = brainCanvas.clientWidth, H = brainCanvas.clientHeight, ratio = window.devicePixelRatio || 1;
@@ -1483,32 +1504,34 @@ async function startTank() {
     }
     const who = Math.min(N - 1, Math.max(0, brainPick.selectedIndex));
     const mem = sim.memory.buffer;
-    const w = new Float32Array(mem, sim.web_brain(who), N_HID * N_IN + N_OUT * (N_HID + 1));
+    const w = new Float32Array(mem, sim.web_brain(who), N_W);
     const seen = new Float32Array(mem, sim.web_seen() + who * N_IN * 4, N_IN);
-    const thought = new Float32Array(mem, sim.web_thought() + who * N_HID * 4, N_HID);
+    const h1 = new Float32Array(mem, sim.web_thought() + who * N_H1 * 4, N_H1);
+    const h2 = new Float32Array(mem, sim.web_thought2() + who * N_H2 * 4, N_H2);
     const decided = new Float32Array(mem, sim.web_decided() + who * N_OUT * 4, N_OUT);
+    // Where each weight lives (as W_IN, W_MID and W_OUT in fish_sim.c)
+    const wIn = (h, k) => w[h * N_IN + k];
+    const wMid = (m, h) => w[N_H1 * N_IN + m * (N_H1 + 1) + h];
+    const wOut = (o, m) => w[N_H1 * N_IN + N_H2 * (N_H1 + 1) + o * (N_H2 + 1) + m];
 
-    const narrow = W < 520;
-    const xIn = narrow ? 118 : 170, xOut = W - (narrow ? 78 : 110), xHid = (xIn + xOut) / 2;
-    const yOf = (n, count) => 14 + (H - 28) * (count === 1 ? 0.5 : n / (count - 1));
-    const yHid = (h) => yOf(h + 1.5, N_HID + 3), yOut = (o) => yOf(o + 2, N_OUT + 4);
+    const narrow = W < 560;
+    const xIn = narrow ? 112 : 160, xOut = W - (narrow ? 70 : 104);
+    const x1 = xIn + (xOut - xIn) * 0.36, x2 = xIn + (xOut - xIn) * 0.7;
+    const yOf = (n, count, pad) => 12 + (H - 24) * (n + pad) / (count - 1 + 2 * pad);
+    const yIn = (k) => yOf(k, N_IN, 0), y1 = (h) => yOf(h, N_H1, 0.6), y2 = (m) => yOf(m, N_H2, 1.6), yOut = (o) => yOf(o, N_OUT, 3);
     const strength = (v) => Math.min(1, Math.abs(v));
 
     // Connections: brightness shows how much signal is flowing along each one right now.
-    const wire = (x0, y0, x1, y1, weight, signal) => {
+    const wire = (xa, ya, xb, yb, weight, signal) => {
       if (Math.abs(weight) < 0.12) return; // too weak to matter: leave it out
       bctx.strokeStyle = signal >= 0 ? plus : minus;
-      bctx.globalAlpha = 0.07 + 0.93 * Math.min(1, Math.abs(signal) * 1.5);
-      bctx.lineWidth = 0.6 + Math.min(2.4, Math.abs(weight));
-      bctx.beginPath(); bctx.moveTo(x0, y0); bctx.lineTo(x1, y1); bctx.stroke();
+      bctx.globalAlpha = 0.05 + 0.95 * Math.min(1, Math.abs(signal) * 1.5);
+      bctx.lineWidth = 0.5 + Math.min(2.2, Math.abs(weight));
+      bctx.beginPath(); bctx.moveTo(xa, ya); bctx.lineTo(xb, yb); bctx.stroke();
     };
-    for (let h = 0; h < N_HID; h++)
-      for (let k = 0; k < N_IN; k++) wire(xIn, yOf(k, N_IN), xHid, yHid(h), w[h * N_IN + k], w[h * N_IN + k] * seen[k]);
-    for (let o = 0; o < N_OUT; o++)
-      for (let h = 0; h < N_HID; h++) {
-        const weight = w[N_HID * N_IN + o * (N_HID + 1) + h];
-        wire(xHid, yHid(h), xOut, yOut(o), weight, weight * thought[h]);
-      }
+    for (let h = 0; h < N_H1; h++) for (let k = 0; k < N_IN; k++) wire(xIn, yIn(k), x1, y1(h), wIn(h, k), wIn(h, k) * seen[k]);
+    for (let m = 0; m < N_H2; m++) for (let h = 0; h < N_H1; h++) wire(x1, y1(h), x2, y2(m), wMid(m, h), wMid(m, h) * h1[h]);
+    for (let o = 0; o < N_OUT; o++) for (let m = 0; m < N_H2; m++) wire(x2, y2(m), xOut, yOut(o), wOut(o, m), wOut(o, m) * h2[m]);
     bctx.globalAlpha = 1;
 
     // Cells: filled by how strongly each is firing, blue for positive, orange for negative.
@@ -1522,11 +1545,16 @@ async function startTank() {
     };
     bctx.textAlign = "right";
     for (let k = 0; k < N_IN; k++) {
-      cell(xIn, yOf(k, N_IN), seen[k], 5);
+      cell(xIn, yIn(k), seen[k], 4.5);
       bctx.fillStyle = Math.abs(seen[k]) > 0.05 ? text : muted;
-      bctx.fillText(SENSES[k] || "", xIn - 10, yOf(k, N_IN), xIn - 14);
+      bctx.fillText(SENSES[k] || "", xIn - 9, yIn(k), xIn - 12);
     }
-    for (let h = 0; h < N_HID; h++) cell(xHid, yHid(h), thought[h], 7);
+    for (let h = 0; h < N_H1; h++) cell(x1, y1(h), h1[h], 6);
+    for (let m = 0; m < N_H2; m++) cell(x2, y2(m), h2[m], 7);
+    bctx.textAlign = "center";
+    bctx.fillStyle = muted;
+    bctx.fillText("Layer 1", x1, 6);
+    bctx.fillText("Layer 2", x2, y2(0) - 18);
     bctx.textAlign = "left";
     for (let o = 0; o < N_OUT; o++) {
       cell(xOut, yOut(o), decided[o], 8);

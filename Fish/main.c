@@ -16,8 +16,8 @@
 //   Panel          A box per fish: name and evolution level (1-5), green bar = health,
 //                  orange bar = hunger, the colours of its best friend (+) and worst enemy (-).
 //   Log            Three lines reporting what happens, newest at the bottom.
-//   Genetics       Every animal has a genome (speed, shape, build, thrift, boldness,
-//                  colour, pattern, and its brain). When one dies, the animal doing best
+//   Genetics       Every animal has a genome (speed, shape, build, thrift, colour,
+//                  pattern, five personality traits, and its brain). When one dies, the animal doing best
 //                  has a baby with a partner; the baby gets each gene from one parent or
 //                  the other, with the odd mutation. So families look alike, and the tank
 //                  evolves. Each animal belongs to the family of one of the ten founders.
@@ -670,7 +670,7 @@ int main(void) {
   RCC_AHB1ENR |= 1u << 0; // port A, for the button
 
   fish_mirror.magic = 0x48534946u; // "FISH"
-  fish_mirror.version = 4;
+  fish_mirror.version = 5;
 
   tank_init(&tank, 0x1234ABCDu);
   scenery_init();
