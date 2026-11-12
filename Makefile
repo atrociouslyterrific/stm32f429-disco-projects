@@ -41,7 +41,7 @@ web: build/fish.wasm
 build/fish.wasm: build/gen/fish_brains.h FORCE
 	clang --target=wasm32 -O2 -ffreestanding -fno-builtin -nostdlib -Wall \
 	  -Wl,--no-entry -Wl,--export-dynamic -IFish -Ibuild/gen \
-	  tools/fish_web.c Fish/fish_sim.c -o $@
+	  tools/fish_web.c Fish/fish_sim.c Fish/fish_view.c -o $@
 
 clean:
 	rm -rf build

@@ -1,7 +1,7 @@
 // Trains the fish brains. Runs on GitHub during the build (never on the board).
 //
 // It keeps a population of 100 brains and repeats, for as long as its time budget allows:
-//   1. Put the brains into tanks of 10 fish of random sizes and let them live for a while at high speed.
+//   1. Put the brains into tanks of 10 fish of mixed species and let them live for a while at high speed.
 //   2. Score each one: food eaten, swimming with the group, not bumping walls, biting
 //      when hungry, and above all not starving or getting eaten.
 //   3. Keep the best quarter. Refill the rest with children of the best: each child

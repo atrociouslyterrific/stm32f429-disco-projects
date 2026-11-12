@@ -1,16 +1,28 @@
-// The fish tank's rules: what a fish can sense, how its brain turns that into movement,
-// and what happens when it meets food or another fish. No screen code in here, so the very
-// same file runs on the board (to show the fish) and on GitHub (to train their brains).
+// The rules of the tank: a small ecosystem.
+//
+//   Plants grow on the seafloor, faster when the water is rich in nutrients. Grown plants
+//   release food into the water. Small fish can also nibble the plants themselves.
+//   Fish eat the food, grow, and after enough meals evolve into the next species:
+//   bigger, stronger, with a new shape. Hungry fish hunt weaker fish; enemies fight.
+//   When a fish dies, what is left of it becomes nutrients, which feed the plants.
+//
+// Every fish is steered by its own small neural-network brain. There is no screen code
+// in here, so the very same file runs on the board (to show the tank), in web browsers
+// (the website's tank) and on GitHub (to train the brains at high speed).
 #ifndef FISH_SIM_H
 #define FISH_SIM_H
 
 #include <stdint.h>
 
 #define TANK_W 240.0f
-#define TANK_H 224.0f // the rest of the screen shows each fish's health and hunger
+#define TANK_H 224.0f   // the rest of the screen shows each fish's health and hunger
+#define FLOOR_H 14.0f   // the seafloor is this thick, at the bottom of the tank
+#define PLANT_TALL 60.0f // a fully grown plant stands this high
 
 #define N_FISH 10
 #define N_FOOD 8
+#define N_PLANTS 6
+#define N_STAGES 5 // species, from Fry (0) up to Titan (4)
 #define NOBODY N_FISH
 
 // Each fish's brain is a small neural network:
@@ -32,15 +44,17 @@ typedef struct {
   float energy;   // 1 = full, 0 = empty. Hunger is 1 - energy.
   float health;   // 1 = fine, 0 = dead. Falls when starving or bitten, heals when well fed.
   float size;     // how big it is right now (1 = average). The more it eats, the bigger it gets.
+  float growth;   // "meal points" earned by eating; enough of them and it evolves
+  float max_size; // the biggest its current species can be
 
   // What it was born with ("genes"):
-  float max_size; // how big it can grow
   float pace;     // how fast a swimmer it is
   float slim;     // body shape: above 1 long and thin, below 1 short and round
 
   float score;    // how well it is doing; decides who has babies
   uint16_t eaten, wall_hits, bites, kills;
   uint16_t age;        // ticks alive
+  uint8_t stage;       // its species: 0 Fry, 1 Darter, 2 Striper, 3 Hunter, 4 Titan
   uint8_t bite_wait;   // ticks until it can bite again
   uint8_t dead;        // set when its health runs out; whoever runs the tank replaces it
   uint8_t eaten_by;    // which fish finished it off, or NOBODY if it starved
@@ -52,14 +66,21 @@ typedef struct {
   uint8_t there;
 } Food;
 
-// Things worth telling someone about. a and b are fish numbers.
+typedef struct {
+  float x;      // where on the seafloor it grows
+  float height; // 0 = nibbled to the ground, 1 = fully grown
+} Plant;
+
+// Things worth telling someone about. a and b are fish numbers unless it says otherwise.
 enum {
-  EV_BIT,     // a bit b
+  EV_BIT,     // a bit b (a smaller fish it was hunting)
   EV_ATE,     // a ate b
   EV_STARVED, // a starved
   EV_BORN,    // a was born, the baby of b
   EV_LIKES,   // a has come to like b
   EV_HATES,   // a has come to hate b
+  EV_FOUGHT,  // a attacked its enemy b, and b fought back
+  EV_EVOLVED, // a evolved; b is its new species number
 };
 typedef struct {
   uint8_t type, a, b;
@@ -69,6 +90,8 @@ typedef struct {
 typedef struct {
   Fish fish[N_FISH];
   Food food[N_FOOD];
+  Plant plants[N_PLANTS];
+  float nutrients; // how rich the water is, 0..1. Dead fish add to it; plants use it up.
   // Relationships: like[a][b] is how fish a feels about fish b,
   // from -1 (enemy) through 0 (stranger) to +1 (friend). It needn't be mutual.
   float like[N_FISH][N_FISH];
@@ -94,10 +117,11 @@ void brain_instinct(Brain *brain);
 void brain_child(Brain *child, const Brain *parent, uint32_t *rng, float amount);
 
 void fish_random_genes(Fish *fish, uint32_t *rng);
+float fish_power(const Fish *fish); // how strong it is in a fight: size and species both count
 void tank_init(Tank *tank, uint32_t seed);
 int tank_drop_food(Tank *tank);                   // at a random spot; returns the slot or -1
 int tank_add_food(Tank *tank, float x, float y);  // at a chosen spot
-// Bring fish i back as a small newborn somewhere random, forgetting its relationships.
+// Bring fish i back as a newborn Fry somewhere random, forgetting its relationships.
 // Its brain and genes are left alone; change them afterwards if it should be a new fish.
 void tank_rebirth(Tank *tank, int i);
 // Fish `gone` has died: the fish doing best has a baby in its place, with a slightly

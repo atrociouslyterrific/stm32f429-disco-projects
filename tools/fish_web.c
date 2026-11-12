@@ -1,13 +1,14 @@
 // The bridge between the fish rules (Fish/fish_sim.c) and a web page.
 //
-// GitHub compiles this, together with fish_sim.c and the freshly trained brains, into
+// GitHub compiles this, together with the rules and the freshly trained brains, into
 // fish.wasm: a file web browsers can run. The website loads it, so the tank shown there
 // follows exactly the same rules, with the same brains, as the tank on the board.
 //
 // The page calls web_step() 30 times a second and reads the numbers back from web_state()
-// and what happened from web_events().
+// (laid out as in Fish/fish_view.h) and what happened from web_events().
 
 #include "fish_sim.h"
+#include "fish_view.h"
 #include "fish_brains.h"
 
 #define EXPORT __attribute__((visibility("default")))
@@ -25,35 +26,13 @@ void *memset(void *dst, int value, __SIZE_TYPE__ n) {
   return dst;
 }
 
-#define PER_FISH 12
-#define HEADER 8
-#define STATE_SIZE (HEADER + N_FISH * PER_FISH + N_FOOD * 3 + N_FISH * N_FISH)
-
 static Tank tank;
-static float state[STATE_SIZE];
+static float state[VIEW_SIZE];
 static int events[1 + MAX_EVENTS * 3]; // how many things happened this tick, then (type, a, b) for each
 static unsigned born;
 
 static void publish(void) {
-  float *p = state;
-  *p++ = (float)tank.step;
-  *p++ = (float)tank.total_eaten;
-  *p++ = (float)tank.total_killed;
-  *p++ = (float)tank.total_starved;
-  *p++ = (float)born;
-  *p++ = 0; *p++ = 0; *p++ = 0;
-  for (int i = 0; i < N_FISH; i++) {
-    const Fish *f = &tank.fish[i];
-    *p++ = f->x; *p++ = f->y; *p++ = f->dx; *p++ = f->dy;
-    *p++ = f->size; *p++ = f->slim; *p++ = f->energy; *p++ = f->health;
-    *p++ = f->score; *p++ = (float)f->age; *p++ = (float)f->kills; *p++ = (float)f->eaten;
-  }
-  for (int k = 0; k < N_FOOD; k++) {
-    *p++ = tank.food[k].x; *p++ = tank.food[k].y; *p++ = (float)tank.food[k].there;
-  }
-  for (int i = 0; i < N_FISH; i++)
-    for (int j = 0; j < N_FISH; j++) *p++ = tank.like[i][j];
-
+  fish_view(&tank, born, state);
   events[0] = tank.n_events;
   for (int e = 0; e < tank.n_events; e++) {
     events[1 + e * 3] = tank.events[e].type;
@@ -87,9 +66,16 @@ EXPORT void web_feed_anywhere(void) { tank_drop_food(&tank); }
 
 EXPORT float *web_state(void) { return state; }
 EXPORT int *web_events(void) { return events; }
-EXPORT int web_n_fish(void) { return N_FISH; }
-EXPORT int web_n_food(void) { return N_FOOD; }
-EXPORT int web_per_fish(void) { return PER_FISH; }
-EXPORT int web_header(void) { return HEADER; }
 EXPORT int web_max_events(void) { return MAX_EVENTS; }
 EXPORT int web_generations(void) { return FISH_BRAINS_GENERATIONS; }
+
+// The layout of web_state(), so the page never has to guess it.
+EXPORT int web_n_fish(void) { return N_FISH; }
+EXPORT int web_n_food(void) { return N_FOOD; }
+EXPORT int web_n_plants(void) { return N_PLANTS; }
+EXPORT int web_per_fish(void) { return VIEW_PER_FISH; }
+EXPORT int web_fish_at(void) { return VIEW_FISH_AT; }
+EXPORT int web_food_at(void) { return VIEW_FOOD_AT; }
+EXPORT int web_like_at(void) { return VIEW_LIKE_AT; }
+EXPORT int web_plant_at(void) { return VIEW_PLANT_AT; }
+EXPORT int web_view_size(void) { return VIEW_SIZE; }

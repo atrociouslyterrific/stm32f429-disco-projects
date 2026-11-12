@@ -92,7 +92,7 @@
   .fishcard { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: .85rem; }
   .fishcard .top { display: flex; align-items: center; gap: 6px; font-weight: 700; }
   .fishcard .who { flex: 1; }
-  .fishcard .extra { color: var(--muted); font-weight: 400; font-size: .78rem; }
+  .fishcard .extra { color: var(--muted); font-weight: 400; font-size: .76rem; margin-top: 1px; }
   .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
   .dot.empty { border: 1px dashed var(--muted); background: none !important; }
   .meter { display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); font-size: .76rem; }
@@ -104,6 +104,9 @@
   .key span { display: inline-flex; align-items: center; gap: 6px; }
   .key i { width: 16px; height: 6px; border-radius: 3px; display: inline-block; }
   h3 { font-size: .95rem; margin: 18px 0 6px; }
+  ul.how { margin: 8px 0 0; padding-left: 1.2em; color: var(--muted); font-size: .92rem; }
+  ul.how li { margin-bottom: 4px; }
+  [hidden] { display: none !important; }
   ol.events { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; font-size: .88rem; }
   ol.events li { display: flex; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--line); }
   ol.events li:last-child { border-bottom: 0; }
@@ -145,8 +148,8 @@
 
     <div class="prog">
       <div><span class="name">Fish</span><span class="size" data-size="Fish"></span></div>
-      <p class="desc">Ten different fish with their own AI brains and nametags. They get hungry, grow as they eat, make friends and enemies, and the big ones eat the small ones. Tap the screen to feed them.</p>
-      <button class="go" data-file="Fish.bin" data-done="Ten named fish should be swimming, with health and hunger bars and a log underneath. Tap the water to feed them.">Flash</button>
+      <p class="desc">A small ecosystem: ten fish with their own AI brains over a seafloor of plants. They eat, grow, evolve through five species, make friends and enemies, hunt and fight. Tap the screen to feed them.</p>
+      <button class="go" data-file="Fish.bin" data-done="Ten named fish should be swimming over a sandy seafloor with plants, with health and hunger bars and a log underneath. Tap the water to feed them.">Flash</button>
     </div>
     <div class="prog">
       <div><span class="name">Hello Screen</span><span class="size" data-size="HelloScreen"></span></div>
@@ -179,9 +182,13 @@
   <div class="tiles" id="tiles"></div>
 
   <div class="card">
-    <h2>Live fish tank</h2>
-    <p class="lead">This runs in your browser with the same rules and the same trained brains as the Fish program
+    <h2 id="tank-title">Live fish tank</h2>
+    <p class="lead" id="tank-lead">This runs in your browser with the same rules and the same trained brains as the Fish program
       on the board. Click or tap the water to drop food.</p>
+    <div class="tank-bar" style="margin-top:0">
+      <button id="mirror" type="button">Show my board's tank</button>
+      <span id="mirror-status" class="muted small" role="status"></span>
+    </div>
     <div class="tank-wrap"><canvas id="tank" width="720" height="672" aria-label="Simulated fish tank"></canvas></div>
     <div class="tank-bar">
       <button id="pause" type="button">Pause</button>
@@ -191,13 +198,24 @@
       <span class="counter">Born <b id="c-born">0</b></span>
       <span class="counter">Eaten <b id="c-eaten">0</b></span>
       <span class="counter">Starved <b id="c-starved">0</b></span>
+      <span class="counter" title="How rich the water is in nutrients. Dead fish add to it; plants use it to grow.">Water richness <b id="c-rich">0%</b></span>
     </div>
     <div class="roster" id="roster"></div>
     <div class="key">
       <span><i style="background:var(--health)"></i>Health</span>
       <span><i style="background:var(--hunger)"></i>Hunger (fuller bar = hungrier)</span>
-      <span>+ best friend</span><span>− worst enemy</span><span>A fish flashes red when bitten</span>
+      <span>+ best friend</span><span>− worst enemy</span><span>A fish flashes red when hurt</span>
     </div>
+    <details>
+      <summary>How the ecosystem works</summary>
+      <ul class="how">
+        <li><strong>Plants</strong> grow on the seafloor, faster when the water is rich. Grown plants release food. The two smallest species also nibble the plants.</li>
+        <li><strong>Evolving:</strong> eating earns meal points. Enough of them and a fish evolves into the next species: Fry → Darter → Striper → Hunter → Titan. Each is bigger and stronger, with a new shape.</li>
+        <li><strong>Hunting:</strong> a hungry fish hunts clearly weaker fish. <strong>Fighting:</strong> enemies attack each other whatever their size, and both get hurt.</li>
+        <li><strong>Relationships:</strong> swimming together builds friendship; crowding, stealing food and attacks make enemies. Friends never attack each other.</li>
+        <li><strong>The cycle:</strong> when a fish dies, what's left enriches the water, which grows the plants, which feed the fish. The fish doing best has a baby in its place, with a slightly changed brain.</li>
+      </ul>
+    </details>
     <h3>What's been happening</h3>
     <ol class="events" id="events"><li class="muted">Nothing yet. Give them a minute.</li></ol>
     <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
@@ -235,7 +253,7 @@
   </div>
 
   <p class="muted small">The board itself has no internet, so this page reports on the code and builds, and the
-    tank above is a copy running in your browser, not a view of your board. Build details refresh every minute.
+    tank above is a copy running in your browser unless you connect your board with “Show my board's tank”. Build details refresh every minute.
     Flashing uses <a href="https://github.com/devanlai/webstlink">webstlink</a> (MIT). <span id="note"></span></p>
 </main>
 
@@ -288,6 +306,7 @@ if (!("usb" in navigator)) {
 
 buttons.forEach(button => button.addEventListener("click", async () => {
   const file = button.dataset.file;
+  await stopMirror(); // only one thing can talk to the board at a time
   setDisabled(true);
   logger.clear();
   let stlink = null;
@@ -335,6 +354,131 @@ buttons.forEach(button => button.addEventListener("click", async () => {
     setDisabled(!("usb" in navigator));
   }
 }));
+
+// ============ Showing the board's own tank, live ============
+// The Fish program keeps a block of memory ("fish_mirror" in Fish/main.c) describing its
+// tank. The board's programmer can read the chip's memory while the program runs, so the
+// page asks for that block about ten times a second and draws what it finds.
+
+const mirrorButton = document.getElementById("mirror");
+const mirrorStatus = document.getElementById("mirror-status");
+const MIRROR_LOG_LINES = 8, MIRROR_LOG_CHARS = 40; // as in Fish/main.c
+let mirror = null; // { link, running }
+
+function mirrorSay(text, bad = false) {
+  mirrorStatus.textContent = text;
+  mirrorStatus.style.color = bad ? "var(--bad)" : "";
+}
+
+async function stopMirror(message = "") {
+  if (!mirror) return;
+  const { link } = mirror;
+  mirror.running = false;
+  mirror = null;
+  try { await link.detach(); } catch (e) { /* already gone */ }
+  if (window.fishTank) { window.fishTank.feedBoard = null; window.fishTank.stopBoard(); }
+  mirrorButton.textContent = "Show my board's tank";
+  mirrorSay(message, !!message);
+}
+
+async function startMirror() {
+  const info = window.fishMirrorInfo, tank = window.fishTank;
+  if (!info || !tank) { mirrorSay("The page hasn't finished loading. Try again in a moment.", true); return; }
+  const { N, VIEW } = tank.layout;
+  const VIEW_AT = 24, LOOKS_AT = VIEW_AT + VIEW * 4, LOG_COUNT_AT = LOOKS_AT + N * 8, LOG_AT = LOG_COUNT_AT + 4;
+  const SIZE = LOG_AT + MIRROR_LOG_LINES * MIRROR_LOG_CHARS + 4;
+  if (info.size !== SIZE) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
+
+  let link;
+  try {
+    mirrorSay("Choose “STM32 STLink” in the pop-up, then click Connect.");
+    const device = await navigator.usb.requestDevice({ filters: libstlink.usb.filters });
+    const quiet = new libstlink.Logger(0, null);
+    link = new WebStlink(quiet);
+    await link.attach(device, quiet);
+    await link.detect_cpu([], null);
+  } catch (err) {
+    console.error(err);
+    if (link) { try { await link.detach(); } catch (e) { /* ignore */ } }
+    mirrorSay(explain(err).join(" "), true);
+    return;
+  }
+
+  mirror = { link, running: true };
+  const mine = mirror;
+  mirrorButton.textContent = "Back to the browser's tank";
+  mirrorSay("Connecting to the tank…");
+
+  let feedCount = null, seenLog = null, misses = 0;
+  tank.feedBoard = async (x, y) => {
+    if (feedCount === null || !mine.running) return;
+    try {
+      const where = new Uint8Array(new Float32Array([x, y]).buffer);
+      await link._mutex.lock();
+      try {
+        await link._driver.set_mem(info.address + 12, where);                                // where to put it
+        await link._driver.set_mem(info.address + 8, new Uint8Array(new Uint32Array([++feedCount]).buffer)); // "one more, please"
+      } finally { link._mutex.unlock(); }
+    } catch (e) { console.error(e); }
+  };
+
+  while (mine.running) {
+    let bytes;
+    try {
+      bytes = await link.read_memory(info.address, SIZE);
+    } catch (err) {
+      console.error(err);
+      if (mine.running) await stopMirror("Lost the connection to the board. Check the cable and try again.");
+      return;
+    }
+    if (!mine.running) return;
+    const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (data.getUint32(0, true) !== 0x48534946) { // "FISH"
+      await stopMirror("The board isn't running this build's Fish program. Flash Fish first, then try again.");
+      return;
+    }
+    const seq = data.getUint32(20, true);
+    if ((seq & 1) || seq !== data.getUint32(SIZE - 4, true)) { // caught it mid-update: skip this one
+      if (++misses > 40) { await stopMirror("The board's tank doesn't seem to be running. Press the black button on the board and try again."); return; }
+    } else {
+      misses = 0;
+      if (feedCount === null) feedCount = data.getUint32(8, true);
+      const s = new Float32Array(bytes.buffer.slice(bytes.byteOffset + VIEW_AT, bytes.byteOffset + VIEW_AT + VIEW * 4));
+      const look = [], flash = [];
+      for (let i = 0; i < N; i++) {
+        const at = LOOKS_AT + i * 8;
+        look.push({
+          tint: [bytes[at], bytes[at + 1], bytes[at + 2]],
+          marking: bytes[at + 3],
+          name: String.fromCharCode(bytes[at + 4], bytes[at + 5], bytes[at + 6]).replace(/[^A-Z]/g, "?"),
+        });
+        flash.push(bytes[at + 7]);
+      }
+      tank.showBoard({ s, look, flash });
+      mirrorSay("Connected. Showing the tank on your board.");
+
+      // New lines in the board's log
+      const logCount = data.getUint32(LOG_COUNT_AT, true);
+      if (seenLog === null) seenLog = Math.max(0, logCount - 3);
+      for (let n = Math.max(seenLog, logCount - MIRROR_LOG_LINES); n < logCount; n++) {
+        const at = LOG_AT + (n % MIRROR_LOG_LINES) * MIRROR_LOG_CHARS;
+        let text = "";
+        for (let c = 0; c < MIRROR_LOG_CHARS; c++) text += String.fromCharCode(bytes[at + c]);
+        text = text.replace(/[^\x20-\x7e]/g, "").trim().toLowerCase();
+        if (text) tank.boardLog(text.charAt(0).toUpperCase() + text.slice(1));
+      }
+      seenLog = logCount;
+    }
+    await new Promise(r => setTimeout(r, 70));
+  }
+}
+
+if ("usb" in navigator) {
+  mirrorButton.addEventListener("click", () => { if (mirror) stopMirror(); else startMirror(); });
+} else {
+  mirrorButton.disabled = true;
+  mirrorSay("Showing your board needs Chrome or Edge on a computer.");
+}
 </script>
 
 <!-- ============ Build status, training progress and the live tank ============ -->
@@ -486,6 +630,7 @@ async function loadPublished() {
       if (slot) slot.textContent = p.bytes.toLocaleString() + " bytes";
     }
     showTiles(s);
+    window.fishMirrorInfo = s.fish_mirror || null; // where the board's tank lives in its memory
 
     if (s.fish) {
       $("training-summary").textContent =
@@ -583,6 +728,8 @@ refresh();
 setInterval(refresh, 60000);
 
 // ---------- the live tank ----------
+// One renderer, two possible sources: this page's own copy of the fish rules (running in
+// the browser), or a real board, read live over USB (see the module script above).
 
 const TANK_W = 240, TANK_H = 224;
 const STARTING_TINTS = [
@@ -591,7 +738,9 @@ const STARTING_TINTS = [
 ];
 const NAMES = ["ADA", "BOB", "CAL", "DOT", "EVE", "FIN", "GUS", "HAL", "IVY", "JAX", "KIT", "LEO", "MAX",
   "NED", "OAK", "PIP", "RAY", "SAM", "TAD", "UMA", "VIC", "WES", "XAN", "YAZ", "ZOE"];
-const EV_BIT = 0, EV_ATE = 1, EV_STARVED = 2, EV_BORN = 3, EV_LIKES = 4, EV_HATES = 5; // as in fish_sim.h
+const SPECIES = ["Fry", "Darter", "Striper", "Hunter", "Titan"];
+// As in fish_sim.h:
+const EV_BIT = 0, EV_ATE = 1, EV_STARVED = 2, EV_BORN = 3, EV_LIKES = 4, EV_HATES = 5, EV_FOUGHT = 6, EV_EVOLVED = 7;
 
 async function startTank() {
   const canvas = $("tank"), ctx = canvas.getContext("2d");
@@ -603,12 +752,59 @@ async function startTank() {
     $("tank-note").textContent = "The live tank couldn't start in this browser.";
     return;
   }
-  const N = sim.web_n_fish(), N_FOOD = sim.web_n_food(), PER = sim.web_per_fish(), HEAD = sim.web_header();
-  const FOOD_AT = HEAD + N * PER, LIKE_AT = FOOD_AT + N_FOOD * 3;
-  const state = () => new Float32Array(sim.memory.buffer, sim.web_state(), LIKE_AT + N * N);
-  const events = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 3);
+  const N = sim.web_n_fish(), N_FOOD = sim.web_n_food(), N_PLANTS = sim.web_n_plants(), PER = sim.web_per_fish();
+  const FISH_AT = sim.web_fish_at(), FOOD_AT = sim.web_food_at(), LIKE_AT = sim.web_like_at(), PLANT_AT = sim.web_plant_at();
+  const VIEW = sim.web_view_size();
+  const simState = () => new Float32Array(sim.memory.buffer, sim.web_state(), VIEW);
+  const simEvents = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 3);
 
-  let look, nextName, lastHealth, flash, cards, paused = false, ticks = 0, logEmpty = true;
+  // What is on screen right now: the numbers (laid out as in fish_view.h), each fish's looks,
+  // and how many frames of red "ouch" flash each has left.
+  let look, flash, lastHealth, nextName, cards, paused = false, ticks = 0, logEmpty = true;
+  let board = null; // when showing a real board: { s, look, flash }
+
+  const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
+  const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
+
+  // ----- scenery: the same seafloor as on the board, drawn once -----
+  const zigzag = (x, period) => Math.abs(x % period - Math.floor(period / 2));
+  const ROCKS = [[40, 214, 9], [150, 215, 7], [205, 214, 10]];
+  const floorTop = [];
+  for (let x = 0; x < TANK_W; x++) {
+    let top = 212 - Math.floor(zigzag(x, 37) / 6) - Math.floor(zigzag(x + 5, 13) / 4);
+    for (const [rx, ry, r] of ROCKS) {
+      const ox = x - rx;
+      if (ox > -r && ox < r) top = Math.min(top, ry - Math.floor(Math.sqrt(r * r - ox * ox - 1e-6)));
+    }
+    floorTop.push(top);
+  }
+  const scenery = document.createElement("canvas");
+  scenery.width = canvas.width; scenery.height = canvas.height;
+  {
+    const c = scenery.getContext("2d"), k = canvas.width / TANK_W;
+    c.setTransform(k, 0, 0, k, 0, 0);
+    const water = c.createLinearGradient(0, 0, 0, TANK_H);
+    water.addColorStop(0, "rgb(8,60,110)");
+    water.addColorStop(1, "rgb(2,16,48)");
+    c.fillStyle = water;
+    c.fillRect(0, 0, TANK_W, TANK_H);
+    for (let x = 0; x < TANK_W; x++) {
+      const top = 212 - Math.floor(zigzag(x, 37) / 6) - Math.floor(zigzag(x + 5, 13) / 4);
+      c.fillStyle = "rgb(196,172,112)";
+      c.fillRect(x, top, 1.02, TANK_H - top);
+      c.fillStyle = "rgb(160,136,84)";
+      for (let y = top; y < TANK_H; y++) if ((x * 13 + y * 7) % 11 === 0) c.fillRect(x, y, 1, 1);
+    }
+    for (const [rx, ry, r] of ROCKS) {
+      c.fillStyle = "rgb(105,110,122)";
+      c.beginPath(); c.arc(rx, ry, r, 0, Math.PI * 2); c.fill();
+      c.save();
+      c.beginPath(); c.rect(rx - r, ry - r, 2 * r, r / 2); c.clip(); // lit on top
+      c.fillStyle = "rgb(150,155,165)";
+      c.beginPath(); c.arc(rx, ry, r, 0, Math.PI * 2); c.fill();
+      c.restore();
+    }
+  }
 
   function buildRoster() {
     const roster = $("roster");
@@ -617,8 +813,9 @@ async function startTank() {
     for (let i = 0; i < N; i++) {
       const card = el("div", undefined, "fishcard");
       const top = el("div", undefined, "top");
-      const dot = el("span", undefined, "dot"), who = el("span", "", "who"), extra = el("span", "", "extra");
-      top.append(dot, who, extra);
+      const dot = el("span", undefined, "dot"), who = el("span", "", "who");
+      top.append(dot, who);
+      const extra = el("div", "", "extra");
       const meter = (label, color) => {
         const row = el("div", undefined, "meter"), track = el("div", undefined, "trackbar"), fill = el("div", undefined, "fill");
         fill.style.background = color;
@@ -627,7 +824,7 @@ async function startTank() {
         card.append(row);
         return fill;
       };
-      card.append(top);
+      card.append(top, extra);
       const health = meter("Health", "var(--health)"), hunger = meter("Hunger", "var(--hunger)");
       const feel = el("div", undefined, "feel");
       const friend = el("span", undefined, "dot"), enemy = el("span", undefined, "dot");
@@ -641,15 +838,19 @@ async function startTank() {
     }
   }
 
-  function logEvent(icon, text) {
+  function clearLog(text) {
+    $("events").replaceChildren(el("li", text, "muted"));
+    logEmpty = true;
+  }
+  function logEvent(icon, text, when) {
     const list = $("events");
     if (logEmpty) { list.replaceChildren(); logEmpty = false; }
-    const seconds = Math.floor(ticks / 30);
     const li = el("li");
-    li.append(el("time", Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")), el("span", icon, "icon"), el("span", text));
+    li.append(el("time", when), el("span", icon, "icon"), el("span", text));
     list.prepend(li); // newest on top
     while (list.children.length > 60) list.lastChild.remove();
   }
+  const clock = () => { const s = Math.floor(ticks / 30); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
 
   function reset() {
     sim.web_init((Math.random() * 0xFFFFFFFF) >>> 0);
@@ -659,26 +860,23 @@ async function startTank() {
     for (let i = 0; i < N; i++) look.push({ tint: STARTING_TINTS[i % STARTING_TINTS.length].slice(), marking: i % 3, name: NAMES[nextName++ % NAMES.length] });
     lastHealth = new Array(N).fill(1);
     flash = new Array(N).fill(0);
-    buildRoster();
-    $("events").replaceChildren(el("li", "Nothing yet. Give them a minute.", "muted"));
-    logEmpty = true;
+    clearLog("Nothing yet. Give them a minute.");
   }
-
-  const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
-  const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
 
   function step() {
     sim.web_step();
     ticks++;
-    const ev = events(), s = state();
+    const ev = simEvents(), s = simState();
     for (let n = 0; n < ev[0]; n++) {
       const type = ev[1 + n * 3], a = ev[2 + n * 3], b = ev[3 + n * 3];
-      const A = title(look[a].name), B = title(look[b].name);
-      if (type === EV_BIT) logEvent("🦷", A + " bit " + B);
-      else if (type === EV_ATE) logEvent("🍽️", A + " ate " + B);
-      else if (type === EV_STARVED) logEvent("💀", A + " starved");
-      else if (type === EV_LIKES) logEvent("💚", A + " now likes " + B);
-      else if (type === EV_HATES) logEvent("💢", A + " now hates " + B);
+      const A = title(look[a].name), B = type === EV_EVOLVED ? "" : title(look[b].name);
+      if (type === EV_BIT) logEvent("🦷", A + " bit " + B, clock());
+      else if (type === EV_ATE) logEvent("🍽️", A + " ate " + B, clock());
+      else if (type === EV_STARVED) logEvent("💀", A + " starved", clock());
+      else if (type === EV_LIKES) logEvent("💚", A + " now likes " + B, clock());
+      else if (type === EV_HATES) logEvent("💢", A + " now hates " + B, clock());
+      else if (type === EV_FOUGHT) logEvent("⚔️", A + " fought " + B, clock());
+      else if (type === EV_EVOLVED) logEvent("✨", A + " evolved into a " + SPECIES[b], clock());
       else if (type === EV_BORN) { // the fish doing best had a baby, in the dead fish's place
         look[a] = {
           tint: look[b].tint.map(v => Math.min(255, Math.max(70, v + Math.floor(Math.random() * 61) - 30))),
@@ -687,25 +885,37 @@ async function startTank() {
         };
         lastHealth[a] = 1;
         flash[a] = 0;
-        logEvent("🐣", title(look[a].name) + " was born to " + B);
+        logEvent("🐣", title(look[a].name) + " was born to " + B, clock());
       }
     }
     for (let i = 0; i < N; i++) {
-      const health = s[HEAD + i * PER + 7];
-      if (health < lastHealth[i] - 0.2) flash[i] = 8;
+      const health = s[FISH_AT + i * PER + 7];
+      if (health < lastHealth[i] - 0.15) flash[i] = 8;
       else if (flash[i]) flash[i]--;
       lastHealth[i] = health;
     }
   }
 
-  function draw() {
-    const s = state(), k = canvas.width / TANK_W;
+  // Draw one tank from its numbers and looks.
+  function draw(s, looks, flashing) {
+    const k = canvas.width / TANK_W;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(scenery, 0, 0);
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    const water = ctx.createLinearGradient(0, 0, 0, TANK_H);
-    water.addColorStop(0, "rgb(8,60,110)");
-    water.addColorStop(1, "rgb(2,16,48)");
-    ctx.fillStyle = water;
-    ctx.fillRect(0, 0, TANK_W, TANK_H);
+
+    // Plants: three blades each, as on the board.
+    for (let p = 0; p < N_PLANTS; p++) {
+      const px = Math.floor(s[PLANT_AT + p * 2]), tall = Math.floor(s[PLANT_AT + p * 2 + 1] * 60);
+      [[-4, 0.7], [0, 1], [4, 0.85]].forEach(([at, part]) => {
+        const x = px + at, h = Math.floor(tall * part);
+        if (x < 0 || x + 2 > TANK_W || h <= 0) return;
+        const base = floorTop[x];
+        ctx.fillStyle = "rgb(28,112,58)";
+        ctx.fillRect(x, base - h, 2, h);
+        ctx.fillStyle = "rgb(40,150,70)";
+        for (let y = base - h; y < base; y += 8) ctx.fillRect(x, y, 2, Math.min(4, base - y));
+      });
+    }
 
     ctx.fillStyle = "rgb(255,230,120)";
     for (let f = 0; f < N_FOOD; f++) {
@@ -715,23 +925,29 @@ async function startTank() {
     ctx.font = "bold 6.5px ui-monospace, Menlo, monospace";
     ctx.textAlign = "center";
     for (let i = 0; i < N; i++) {
-      const o = HEAD + i * PER;
+      const o = FISH_AT + i * PER;
       const x = s[o], y = s[o + 1], dx = s[o + 2], dy = s[o + 3], size = s[o + 4], slim = s[o + 5], energy = s[o + 6];
-      const glow = 0.45 + 0.55 * energy;
-      const tint = flash[i] ? [255, 40, 40] : look[i].tint, g = flash[i] ? 1 : glow;
+      const stage = Math.round(s[o + 12]);
+      const tint = flashing[i] ? [255, 40, 40] : looks[i].tint, g = flashing[i] ? 1 : 0.45 + 0.55 * energy;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(Math.atan2(dy, dx));
       ctx.scale(size * slim, size / slim); // the same standard fish shape as on the board, stretched
-      ctx.fillStyle = rgb(tint, g * 2 / 3); // tail
-      ctx.beginPath(); ctx.moveTo(-3, -0.6); ctx.lineTo(-8.5, -3.9); ctx.lineTo(-8.5, 3.9); ctx.lineTo(-3, 0.6); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = rgb(tint, g * 2 / 3); // tail and fins
+      ctx.beginPath();
+      ctx.moveTo(-3, -0.6); ctx.lineTo(-8.5, -3.9);
+      if (stage >= 2) ctx.lineTo(-5.5, 0); // Striper and up: forked tail
+      ctx.lineTo(-8.5, 3.9); ctx.lineTo(-3, 0.6); ctx.closePath(); ctx.fill();
+      if (stage >= 1) { ctx.beginPath(); ctx.moveTo(-1.5, -2); ctx.lineTo(-1.5, -4.2); ctx.lineTo(2.5, -2); ctx.closePath(); ctx.fill(); } // back fin
+      if (stage >= 3) { ctx.beginPath(); ctx.moveTo(-1, 2); ctx.lineTo(-1, 3.5); ctx.lineTo(2, 2); ctx.closePath(); ctx.fill(); }          // belly fin
       ctx.fillStyle = rgb(tint, g); // body
+      if (stage >= 4) { ctx.beginPath(); ctx.moveTo(5.5, -1.05); ctx.lineTo(8.5, 0); ctx.lineTo(5.5, 1.05); ctx.closePath(); ctx.fill(); }   // Titan's horn
       ctx.beginPath(); ctx.ellipse(1, 0, 5, 2.6, 0, 0, Math.PI * 2); ctx.fill();
-      if (look[i].marking) {
+      if (looks[i].marking) {
         ctx.save();
         ctx.clip();
         ctx.fillStyle = rgb(tint, g * 2 / 5);
-        if (look[i].marking === 1) ctx.fillRect(-0.4, -3, 1.6, 6);
+        if (looks[i].marking === 1) ctx.fillRect(-0.4, -3, 1.6, 6);
         else ctx.fillRect(-5, -3, 12, 2.1);
         ctx.restore();
       }
@@ -741,23 +957,24 @@ async function startTank() {
 
       // Nametag: above the fish, or below it at the top of the tank (as on the board).
       const reach = 8.5 * size * slim + 2, above = y - reach - 8 >= 0;
-      ctx.fillStyle = rgb(look[i].tint.map(v => (v + 255) / 2), 1);
-      ctx.fillText(look[i].name, Math.min(TANK_W - 10, Math.max(10, x)), above ? y - reach - 2 : y + reach + 8);
+      ctx.fillStyle = rgb(looks[i].tint.map(v => (v + 255) / 2), 1);
+      ctx.fillText(looks[i].name, Math.min(TANK_W - 10, Math.max(10, x)), above ? y - reach - 2 : y + reach + 8);
     }
   }
 
-  function updateRoster() {
-    const s = state();
+  function updateRoster(s, looks) {
     $("c-fed").textContent = Math.round(s[1]);
     $("c-eaten").textContent = Math.round(s[2]);
     $("c-starved").textContent = Math.round(s[3]);
     $("c-born").textContent = Math.round(s[4]);
+    $("c-rich").textContent = Math.round(s[5] * 100) + "%";
     for (let i = 0; i < N; i++) {
-      const o = HEAD + i * PER, c = cards[i], health = s[o + 7], hunger = 1 - s[o + 6], kills = Math.round(s[o + 10]);
-      c.dot.style.background = rgb(look[i].tint, 1);
-      c.who.textContent = look[i].name;
-      c.extra.textContent = "size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
-      c.health.style.width = Math.round(health * 100) + "%";
+      const o = FISH_AT + i * PER, c = cards[i], health = s[o + 7], hunger = 1 - s[o + 6], kills = Math.round(s[o + 10]);
+      const stage = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 12])));
+      c.dot.style.background = rgb(looks[i].tint, 1);
+      c.who.textContent = looks[i].name;
+      c.extra.textContent = SPECIES[stage] + " (level " + (stage + 1) + ")" + (kills ? " · ate " + kills : "");
+      c.health.style.width = Math.round(Math.max(0, health) * 100) + "%";
       c.health.style.background = health < 0.35 ? "var(--health-low)" : "var(--health)";
       c.hunger.style.width = Math.round(hunger * 100) + "%";
       let best = -1, worst = -1, bestLike = 0.15, worstLike = -0.15;
@@ -769,41 +986,77 @@ async function startTank() {
       }
       for (const [node, who, word] of [[c.friend, best, "Best friend"], [c.enemy, worst, "Worst enemy"]]) {
         node.className = who < 0 ? "dot empty" : "dot";
-        node.style.background = who < 0 ? "" : rgb(look[who].tint, 1);
-        node.title = who < 0 ? word + ": none yet" : word + ": " + look[who].name;
+        node.style.background = who < 0 ? "" : rgb(looks[who].tint, 1);
+        node.title = who < 0 ? word + ": none yet" : word + ": " + looks[who].name;
       }
     }
   }
 
-  // Run the tank at the board's pace: 30 ticks a second.
+  // Run the browser's tank at the board's pace (30 ticks a second) unless a real board is showing.
   let owed = 0, last = performance.now(), sinceRoster = 0;
   function frame(now) {
     const dt = Math.min(200, now - last);
     last = now;
-    if (!paused) {
+    if (!board && !paused) {
       owed += dt;
       let did = 0;
       while (owed >= 1000 / 30 && did < 4) { step(); owed -= 1000 / 30; did++; }
       if (did === 4) owed = 0;
     }
-    draw();
+    const s = board ? board.s : simState(), looks = board ? board.look : look, flashing = board ? board.flash : flash;
+    draw(s, looks, flashing);
     sinceRoster += dt;
-    if (sinceRoster > 250) { updateRoster(); sinceRoster = 0; }
+    if (sinceRoster > 250) { updateRoster(s, looks); sinceRoster = 0; }
     requestAnimationFrame(frame);
   }
 
+  function setMode() {
+    const on = !!board;
+    $("pause").hidden = on;
+    $("restart").hidden = on;
+    $("tank-title").textContent = on ? "Your board's tank, live" : "Live fish tank";
+    $("tank-lead").textContent = on
+      ? "This is the tank on your board right now, read over the USB cable about ten times a second. Click the water to drop food into the board's tank."
+      : "This runs in your browser with the same rules and the same trained brains as the Fish program on the board. Click or tap the water to drop food.";
+  }
+
+  // Hooks for the USB code above.
+  window.fishTank = {
+    layout: { N, VIEW },
+    feedBoard: null, // set while a board is showing: (x, y) => drops food on the board
+    showBoard(snapshot) { // { s, look, flash }
+      if (!board) { clearLog("Waiting for something to happen on the board…"); }
+      board = snapshot;
+      setMode();
+    },
+    boardLog(text) { logEvent("•", text, new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })); },
+    stopBoard() {
+      if (!board) return;
+      board = null;
+      setMode();
+      reset();
+    },
+  };
+
   canvas.addEventListener("pointerdown", (ev) => {
     const r = canvas.getBoundingClientRect();
-    sim.web_feed((ev.clientX - r.left) / r.width * TANK_W, (ev.clientY - r.top) / r.height * TANK_H);
+    const x = (ev.clientX - r.left) / r.width * TANK_W, y = (ev.clientY - r.top) / r.height * TANK_H;
+    if (board) { if (window.fishTank.feedBoard) window.fishTank.feedBoard(x, y); }
+    else sim.web_feed(x, y);
   });
-  $("feed").addEventListener("click", () => sim.web_feed_anywhere());
+  $("feed").addEventListener("click", () => {
+    if (board) { if (window.fishTank.feedBoard) window.fishTank.feedBoard(20 + Math.random() * 200, 20 + Math.random() * 160); }
+    else sim.web_feed_anywhere();
+  });
   $("restart").addEventListener("click", reset);
   $("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "Play" : "Pause"; });
 
+  buildRoster();
   reset();
-  updateRoster();
+  setMode();
+  updateRoster(simState(), look);
   $("tank-note").textContent = "Brains from this build's training (" + sim.web_generations().toLocaleString() + " generations). " +
-    "Each visit starts a new random tank, so no two runs are the same.";
+    "Each visit starts a new random browser tank, so no two runs are the same.";
   requestAnimationFrame(frame);
 }
 startTank();
