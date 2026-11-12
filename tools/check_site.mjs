@@ -78,7 +78,7 @@ console.log("  kinds evolved into at some point: " + ([...everKinds].sort().map(
 
 // Genetics and families
 const GENE_RANGES = [[21, 0.85, 1.25, "speed"], [5, 0.8, 1.25, "shape"], [22, 0.85, 1.2, "build"], [23, 0.8, 1.2, "thrift"], [24, 0, 1, "boldness"]];
-const ids = new Set();
+const animalIds = new Set();
 let deepest = 0;
 for (let i = 0; i < N; i++) {
   const o = FISH_AT + i * PER;
@@ -86,8 +86,8 @@ for (let i = 0; i < N; i++) {
   for (const at of [25, 26, 27]) if (!(s[o + at] >= 70 && s[o + at] <= 255)) problem("colour gene out of range: " + s[o + at]);
   if (!(s[o + 28] >= 0 && s[o + 28] <= 2)) problem("pattern gene out of range: " + s[o + 28]);
   const id = s[o + 16], gen = s[o + 20], family = s[o + 19];
-  if (ids.has(id)) problem("two animals share the number " + id);
-  ids.add(id);
+  if (animalIds.has(id)) problem("two animals share the number " + id);
+  animalIds.add(id);
   if (!(family >= 0 && family < N)) problem("family out of range: " + family);
   if (gen > 0 && (!s[o + 17] || !s[o + 18])) problem("a baby without two parents");
   deepest = Math.max(deepest, gen);
