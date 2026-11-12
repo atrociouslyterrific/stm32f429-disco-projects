@@ -33,7 +33,7 @@ jobs:
       - name: Compile every program
         run: make
 
-      - name: Build the fish rules for web browsers (for the status page's live tank)
+      - name: Build the fish rules for web browsers (for the website's live tank)
         run: make web && ls -l build/fish.wasm
 
       - name: Check each program starts the way the chip expects
@@ -72,7 +72,7 @@ jobs:
           cp -R site/. _site/
           cp build/*.bin build/fish.wasm _site/
 
-          # Facts about this build, for the status page (status.html).
+          # Facts about this build, for the status part of the page.
           COMMIT_MESSAGE="$(git log -1 --pretty=%s)" python3 - <<'PY'
           import glob, json, os, time
           status = {
@@ -97,7 +97,7 @@ jobs:
           N="${{ github.run_number }}"
           mv _site/webstlink "_site/webstlink-$N"
           sed -i "s|\./webstlink/|./webstlink-$N/|g; s|__BUILD__|$N|g" _site/index.html
-          sed -i "s|__REPO__|${{ github.repository }}|g" _site/status.html
+          sed -i "s|__REPO__|${{ github.repository }}|g" _site/index.html
           grep -n "webstlink-$N" _site/index.html
           ls -la _site
 

@@ -9,6 +9,14 @@
 #define DRAIN      0.0005f // energy used per tick by an average-sized fish
 #define MEAL       0.35f   // energy from one pellet
 
+// Growing: the more a fish eats, the bigger it gets, up to the limit it was born with.
+#define BABY_SIZE   0.7f
+#define GROW_PELLET 0.05f
+#define GROW_BITE   0.06f
+#define GROW_KILL   0.2f
+#define SIZE_LIMIT_LO 1.4f // the smallest and largest "full-grown" size a fish can be born with
+#define SIZE_LIMIT_HI 2.4f
+
 // Eating each other
 #define PREY_RATIO  0.8f // a fish can only bite one smaller than this fraction of itself
 #define BITE_HUNGER 0.6f // ...and only when its energy is below this (full fish don't hunt)
@@ -25,6 +33,14 @@ static float root(float v) { return __builtin_sqrtf(v); }
 static float squash(float v) { return v / (1.0f + (v < 0.0f ? -v : v)); }
 
 static float clamp(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static void note(Tank *t, int type, int a, int b) {
+  if (t->n_events >= MAX_EVENTS) return; // a very busy tick: the extra ones go unreported
+  Event *e = &t->events[t->n_events++];
+  e->type = (uint8_t)type;
+  e->a = (uint8_t)a;
+  e->b = (uint8_t)b;
+}
 
 uint32_t rng_next(uint32_t *state) {
   uint32_t x = *state;
@@ -103,7 +119,7 @@ void brain_child(Brain *child, const Brain *parent, uint32_t *rng, float amount)
 }
 
 void fish_random_genes(Fish *f, uint32_t *rng) {
-  f->max_size = 0.9f + 0.8f * rng_unit(rng);  // 0.9 .. 1.7
+  f->max_size = SIZE_LIMIT_LO + (SIZE_LIMIT_HI - SIZE_LIMIT_LO) * rng_unit(rng);
   f->pace     = 0.85f + 0.4f * rng_unit(rng); // 0.85 .. 1.25
   f->slim     = 0.8f + 0.45f * rng_unit(rng); // 0.8 .. 1.25
 }
@@ -124,7 +140,7 @@ void tank_rebirth(Tank *t, int i) {
   place(f, &t->rng);
   f->energy = 0.6f;
   f->health = 1.0f;
-  f->size = 0.7f;
+  f->size = BABY_SIZE;
   f->age = 0;
   f->bite_wait = 0;
   f->dead = 0;
@@ -145,13 +161,14 @@ int tank_replace(Tank *t, int gone) {
   tank_rebirth(t, gone);
   Fish *baby = &t->fish[gone];
   brain_child(&baby->brain, &mum->brain, &t->rng, 0.15f);
-  baby->max_size = nudge(t, mum->max_size, 0.1f, 0.9f, 1.7f);
+  baby->max_size = nudge(t, mum->max_size, 0.1f, SIZE_LIMIT_LO, SIZE_LIMIT_HI);
   baby->pace = nudge(t, mum->pace, 0.05f, 0.85f, 1.25f);
   baby->slim = nudge(t, mum->slim, 0.05f, 0.8f, 1.25f);
   baby->score = 0.0f;
   baby->eaten = baby->wall_hits = baby->bites = baby->kills = 0;
   t->like[gone][parent] = 0.5f;
   t->like[parent][gone] = 0.5f;
+  note(t, EV_BORN, gone, parent);
   return parent;
 }
 
@@ -177,13 +194,14 @@ void tank_init(Tank *t, uint32_t seed) {
   t->rng = seed | 1u;
   t->step = 0;
   t->total_eaten = t->total_killed = t->total_starved = 0;
+  t->n_events = 0;
   for (int i = 0; i < N_FISH; i++) {
     Fish *f = &t->fish[i];
     tank_rebirth(t, i);
     fish_random_genes(f, &t->rng);
     brain_instinct(&f->brain);
     // The first fish start at all sorts of sizes and ages, not as babies.
-    f->size = 0.7f + rng_unit(&t->rng) * (f->max_size - 0.7f);
+    f->size = BABY_SIZE + rng_unit(&t->rng) * 0.8f;
     f->energy = 0.6f + 0.4f * rng_unit(&t->rng);
     f->age = NEWBORN_SAFE;
     f->score = 0.0f;
@@ -317,7 +335,11 @@ static void think(const Brain *b, const float in[N_IN], float out[N_OUT]) {
 }
 
 static void feel(Tank *t, int who, int about, float change) {
-  t->like[who][about] = clamp(t->like[who][about] + change, -1.0f, 1.0f);
+  float before = t->like[who][about];
+  float after = clamp(before + change, -1.0f, 1.0f);
+  t->like[who][about] = after;
+  if (before < 0.5f && after >= 0.5f) note(t, EV_LIKES, who, about);
+  if (before > -0.5f && after <= -0.5f) note(t, EV_HATES, who, about);
 }
 
 static void die(Tank *t, int i, int eaten_by) {
@@ -326,8 +348,8 @@ static void die(Tank *t, int i, int eaten_by) {
   f->health = 0.0f;
   f->eaten_by = (uint8_t)eaten_by;
   f->score -= 20.0f;
-  if (eaten_by == NOBODY) t->total_starved++;
-  else t->total_killed++;
+  if (eaten_by == NOBODY) { t->total_starved++; note(t, EV_STARVED, i, i); }
+  else { t->total_killed++; note(t, EV_ATE, eaten_by, i); }
 }
 
 // Fish i wants to bite. Find something it is allowed to eat right in front of its mouth.
@@ -349,12 +371,13 @@ static void try_bite(Tank *t, int i) {
   victim->health -= BITE_DAMAGE;
   victim->score -= 5.0f;
   me->energy = clamp(me->energy + 0.3f, 0.0f, 1.0f);
-  me->size = clamp(me->size + 0.03f, 0.0f, me->max_size);
+  me->size = clamp(me->size + GROW_BITE, 0.0f, me->max_size);
   me->bites++;
   me->bite_wait = BITE_REST;
   me->score += 8.0f;
 
   // Nobody forgets a bite: the victim, anyone who saw it, and above all the victim's friends.
+  if (victim->health > 0.0f) note(t, EV_BIT, i, target);
   feel(t, target, i, -0.6f);
   for (int w = 0; w < N_FISH; w++) {
     if (w == i || w == target || t->fish[w].dead) continue;
@@ -365,7 +388,7 @@ static void try_bite(Tank *t, int i) {
   if (victim->health <= 0.0f) {
     die(t, target, i);
     me->energy = 1.0f;
-    me->size = clamp(me->size + 0.1f, 0.0f, me->max_size);
+    me->size = clamp(me->size + GROW_KILL, 0.0f, me->max_size);
     me->kills++;
     me->score += 20.0f; // a successful hunt pays well, or evolution breeds fish that never hunt
   }
@@ -374,6 +397,7 @@ static void try_bite(Tank *t, int i) {
 void tank_step(Tank *t) {
   float turn[N_FISH], push[N_FISH], bite[N_FISH], with_group[N_FISH];
   int crowded[N_FISH], sees_prey[N_FISH];
+  t->n_events = 0;
 
   // Everyone looks and decides first, then everyone moves, so no fish gets a head start.
   for (int i = 0; i < N_FISH; i++) {
@@ -424,7 +448,7 @@ void tank_step(Tank *t) {
       if (ox * ox + oy * oy < reach * reach) {
         t->food[k].there = 0;
         f->energy = clamp(f->energy + MEAL, 0.0f, 1.0f);
-        f->size = clamp(f->size + 0.02f, 0.0f, f->max_size);
+        f->size = clamp(f->size + GROW_PELLET, 0.0f, f->max_size);
         f->eaten++;
         t->total_eaten++;
         f->score += 10.0f;

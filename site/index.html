@@ -3,16 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>STM32 board flasher</title>
+<title>STM32 board</title>
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --text: #1c2330; --muted: #5d6778; --line: #dfe3ea;
-    --accent: #1f6feb; --accent-text: #ffffff; --ok: #1a7f37; --bad: #b42318; --warn: #8a5a00;
+    --accent: #1f6feb; --accent-text: #ffffff; --ok: #1a7f37; --ok-bg: #e3f6e8; --bad: #b42318; --bad-bg: #fde7e4;
+    --busy: #8a5a00; --busy-bg: #fdf1d3; --warn: #8a5a00; --track: #e4e7ed;
+    --series-1: #2a78d6; --series-2: #eb6834; --grid: #e6e9ef;
+    --health: #2f9e4f; --health-low: #d6453a; --hunger: #e8862a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #12151a; --card: #1b2028; --text: #e7ebf2; --muted: #9aa5b6; --line: #2c3340;
-      --accent: #4c8dff; --accent-text: #0b1020; --ok: #4cc26b; --bad: #ff7b72; --warn: #e3b341;
+      --accent: #4c8dff; --accent-text: #0b1020; --ok: #4cc26b; --ok-bg: #16301e; --bad: #ff7b72; --bad-bg: #3a1a18;
+      --busy: #e3b341; --busy-bg: #33290f; --warn: #e3b341; --track: #2c3340;
+      --series-1: #3987e5; --series-2: #d95926; --grid: #2a303b;
+      --health: #46c26a; --health-low: #f0655a; --hunger: #f0983c;
     }
   }
   * { box-sizing: border-box; }
@@ -20,67 +26,220 @@
     margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--text);
     font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  main { max-width: 640px; margin: 0 auto; }
+  main { max-width: 760px; margin: 0 auto; }
   h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 0 0 4px; }
+  a { color: var(--accent); }
   .sub { color: var(--muted); margin: 0 0 20px; }
+  .lead { color: var(--muted); margin: 0 0 14px; font-size: .95rem; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-  ol { margin: 0; padding-left: 1.3em; }
-  li { margin-bottom: 6px; }
-  button.go {
-    width: 100%; padding: 14px; font-size: 1.1rem; font-weight: 600; border: 0; border-radius: 10px;
-    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  .pill { display: inline-block; padding: 2px 12px; border-radius: 999px; font-weight: 600; font-size: .9rem; white-space: nowrap; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.bad { color: var(--bad); background: var(--bad-bg); }
+  .pill.busy { color: var(--busy); background: var(--busy-bg); }
+  .big { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+  .big strong { font-size: 1.25rem; }
+  .muted { color: var(--muted); }
+  .small { font-size: .9rem; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  ul.runs { list-style: none; margin: 8px 0 0; padding: 0; }
+  ul.runs li { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  ul.runs li:last-child { border-bottom: 0; }
+  ul.runs .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  button {
+    font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
   }
+  button:hover { border-color: var(--accent); }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+
+  /* flashing */
+  ol.steps { margin: 8px 0 0; padding-left: 1.3em; color: var(--muted); font-size: .95rem; }
+  .prog { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .prog:last-of-type { border-bottom: 0; }
+  .prog .name { font-weight: 700; }
+  .prog .size { color: var(--muted); font-weight: 400; font-size: .82rem; margin-left: 6px; font-variant-numeric: tabular-nums; }
+  .prog .desc { grid-column: 1; margin: 0; color: var(--muted); font-size: .92rem; }
+  .prog button.go { grid-column: 2; grid-row: 1 / span 2; padding: 10px 18px; border: 0; background: var(--accent); color: var(--accent-text); }
   button.go:disabled { opacity: .55; cursor: default; }
-  .prog + .prog { margin-top: 16px; }
-  .desc { margin: 6px 2px 0; color: var(--muted); font-size: .92rem; }
-  #status { margin: 16px 0 0; font-weight: 600; min-height: 1.5em; }
+  #status { margin: 14px 0 0; font-weight: 600; min-height: 1.5em; }
   #status.ok { color: var(--ok); } #status.bad { color: var(--bad); } #status.busy { color: var(--muted); }
   #help { margin: 6px 0 0; color: var(--muted); }
-  details { margin-top: 14px; color: var(--muted); }
   #log { font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; }
   #log .error { color: var(--bad); } #log .warning { color: var(--warn); }
   progress { width: 100%; }
-  .foot { color: var(--muted); font-size: .85rem; }
+
+  /* headline numbers */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile .label { color: var(--muted); font-size: .85rem; }
+  .tile .value { font-size: 1.7rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .tile .note { color: var(--muted); font-size: .8rem; }
+
+  /* live tank */
+  .tank-wrap { display: flex; justify-content: center; }
+  canvas#tank { width: 100%; max-width: 480px; aspect-ratio: 240 / 224; border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
+  .tank-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: center; margin: 12px 0; }
+  .counter { font-variant-numeric: tabular-nums; }
+  .counter b { font-size: 1.05rem; }
+  .roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .fishcard { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: .85rem; }
+  .fishcard .top { display: flex; align-items: center; gap: 6px; font-weight: 700; }
+  .fishcard .who { flex: 1; }
+  .fishcard .extra { color: var(--muted); font-weight: 400; font-size: .78rem; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+  .dot.empty { border: 1px dashed var(--muted); background: none !important; }
+  .meter { display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); font-size: .76rem; }
+  .meter .trackbar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .meter .fill { height: 100%; border-radius: 3px; }
+  .feel { display: flex; gap: 12px; margin-top: 6px; color: var(--muted); font-size: .76rem; align-items: center; }
+  .feel span { display: inline-flex; align-items: center; gap: 4px; }
+  .key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; color: var(--muted); font-size: .82rem; }
+  .key span { display: inline-flex; align-items: center; gap: 6px; }
+  .key i { width: 16px; height: 6px; border-radius: 3px; display: inline-block; }
+  h3 { font-size: .95rem; margin: 18px 0 6px; }
+  ol.events { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; font-size: .88rem; }
+  ol.events li { display: flex; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--line); }
+  ol.events li:last-child { border-bottom: 0; }
+  ol.events time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; width: 3.2em; }
+  ol.events .icon { flex: none; width: 1.3em; text-align: center; }
+
+  /* training chart */
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .88rem; color: var(--muted); margin-bottom: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; height: 250px; }
+  .chart text { font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: var(--muted); }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; font-size: .82rem; box-shadow: 0 4px 14px rgba(0,0,0,.15);
+    white-space: nowrap; display: none; font-variant-numeric: tabular-nums;
+  }
+  .tip b { display: block; margin-bottom: 2px; }
+  .tip div { display: flex; align-items: center; gap: 6px; }
+  .tip i { width: 10px; height: 0; border-top: 2px solid; display: inline-block; }
 </style>
 </head>
 <body>
 <main>
-  <h1>STM32 board flasher</h1>
-  <p class="sub">Puts a program on the STM32F429I-DISCO board. Build <span id="build">__BUILD__</span>.</p>
+  <h1>STM32 board</h1>
+  <p class="sub">Programs for the STM32F429I-DISCO board: put one on the board, see how the latest build went,
+    watch the fish, and follow their training.</p>
 
   <div class="card">
-    <ol>
-      <li>Plug the board into the computer with the mini-USB cable (the socket marked <em>USB ST-LINK</em>).</li>
-      <li>Click the button for the program you want.</li>
-      <li>Chrome shows a small pop-up. Click <strong>STM32 STLink</strong> in its list, then click the pop-up's <strong>Connect</strong> button.</li>
-      <li>Wait a few seconds for “Done”. The new program starts by itself.</li>
-    </ol>
+    <h2>Latest build</h2>
+    <div class="big"><span id="pill" class="pill busy">Checking…</span><strong id="headline"></strong></div>
+    <p id="detail" class="muted" style="margin:10px 0 0"></p>
   </div>
 
   <div class="card">
+    <h2>Put a program on the board</h2>
+    <p class="lead">This page is build <span id="build">__BUILD__</span>. Use Chrome or Edge on a computer.</p>
+
     <div class="prog">
-      <button class="go" data-file="Fish.bin" data-done="Ten fish should be swimming, with a panel of health and hunger bars underneath. Tap the water to feed them.">Flash Fish</button>
-      <p class="desc">Ten different fish with their own AI brains. They get hungry, make friends and enemies, and the big ones eat the small ones. Tap the screen to feed them.</p>
+      <div><span class="name">Fish</span><span class="size" data-size="Fish"></span></div>
+      <p class="desc">Ten different fish with their own AI brains and nametags. They get hungry, grow as they eat, make friends and enemies, and the big ones eat the small ones. Tap the screen to feed them.</p>
+      <button class="go" data-file="Fish.bin" data-done="Ten named fish should be swimming, with health and hunger bars and a log underneath. Tap the water to feed them.">Flash</button>
     </div>
     <div class="prog">
-      <button class="go" data-file="HelloScreen.bin" data-done="The screen should say HELLO! with three colour bars and a seconds counter.">Flash Hello Screen</button>
+      <div><span class="name">Hello Screen</span><span class="size" data-size="HelloScreen"></span></div>
       <p class="desc">Lights up the screen: a greeting, colour bars and a seconds counter.</p>
+      <button class="go" data-file="HelloScreen.bin" data-done="The screen should say HELLO! with three colour bars and a seconds counter.">Flash</button>
     </div>
     <div class="prog">
-      <button class="go" data-file="Blink.bin" data-done="The green and red lights should be taking turns. The screen stays blank.">Flash Blink</button>
+      <div><span class="name">Blink</span><span class="size" data-size="Blink"></span></div>
       <p class="desc">The two lights beside the screen take turns. The screen stays blank.</p>
+      <button class="go" data-file="Blink.bin" data-done="The green and red lights should be taking turns. The screen stays blank.">Flash</button>
     </div>
+
     <p id="status" role="status"></p>
     <p id="help"></p>
+    <details>
+      <summary>How to flash, step by step</summary>
+      <ol class="steps">
+        <li>Plug the board into the computer with the mini-USB cable (the socket marked <em>USB ST-LINK</em>).</li>
+        <li>Click <strong>Flash</strong> beside the program you want.</li>
+        <li>Chrome shows a small pop-up. Click <strong>STM32 STLink</strong> in its list, then the pop-up's <strong>Connect</strong> button.</li>
+        <li>Wait a few seconds for “Done”. The new program starts by itself.</li>
+      </ol>
+    </details>
     <details>
       <summary>Technical details (copy these if something goes wrong)</summary>
       <div id="log"></div>
     </details>
   </div>
 
-  <p class="foot"><a href="status.html">Project status</a> · Works in Chrome or Edge on a computer. Uses <a href="https://github.com/devanlai/webstlink">webstlink</a> (MIT).</p>
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <h2>Live fish tank</h2>
+    <p class="lead">This runs in your browser with the same rules and the same trained brains as the Fish program
+      on the board. Click or tap the water to drop food.</p>
+    <div class="tank-wrap"><canvas id="tank" width="720" height="672" aria-label="Simulated fish tank"></canvas></div>
+    <div class="tank-bar">
+      <button id="pause" type="button">Pause</button>
+      <button id="feed" type="button">Drop food</button>
+      <button id="restart" type="button">New tank</button>
+      <span class="counter">Fed <b id="c-fed">0</b></span>
+      <span class="counter">Born <b id="c-born">0</b></span>
+      <span class="counter">Eaten <b id="c-eaten">0</b></span>
+      <span class="counter">Starved <b id="c-starved">0</b></span>
+    </div>
+    <div class="roster" id="roster"></div>
+    <div class="key">
+      <span><i style="background:var(--health)"></i>Health</span>
+      <span><i style="background:var(--hunger)"></i>Hunger (fuller bar = hungrier)</span>
+      <span>+ best friend</span><span>− worst enemy</span><span>A fish flashes red when bitten</span>
+    </div>
+    <h3>What's been happening</h3>
+    <ol class="events" id="events"><li class="muted">Nothing yet. Give them a minute.</li></ol>
+    <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Training progress</h2>
+    <p class="lead" id="training-summary">Loading…</p>
+    <div class="legend">
+      <span><i style="border-color:var(--series-2)"></i>Best fish</span>
+      <span><i style="border-color:var(--series-1)"></i>Average fish</span>
+    </div>
+    <div class="chart" id="chart"><svg role="img" aria-label="Line chart of fish scores by training generation"></svg><div class="tip" id="tip"></div></div>
+    <details>
+      <summary>Show the numbers as a table</summary>
+      <div class="scroll">
+        <table>
+          <thead><tr><th class="num">Generation</th><th class="num">Best fish score</th><th class="num">Average fish score</th></tr></thead>
+          <tbody id="history-table"></tbody>
+        </table>
+      </div>
+    </details>
+    <h3>Before and after training</h3>
+    <div class="scroll">
+      <table id="training-table" hidden>
+        <thead><tr><th>In 100 seconds</th><th class="num">Food per fish</th><th class="num">Fish eaten</th><th class="num">Starved</th><th class="num">Score</th></tr></thead>
+        <tbody id="training"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recent builds</h2>
+    <ul id="runs" class="runs"><li class="muted">Loading…</li></ul>
+  </div>
+
+  <p class="muted small">The board itself has no internet, so this page reports on the code and builds, and the
+    tank above is a copy running in your browser, not a view of your board. Build details refresh every minute.
+    Flashing uses <a href="https://github.com/devanlai/webstlink">webstlink</a> (MIT). <span id="note"></span></p>
 </main>
 
+<!-- ============ Putting a program on the board ============ -->
 <script type="module">
 import WebStlink from "./webstlink/webstlink.js";
 import * as libstlink from "./webstlink/lib/package.js";
@@ -105,7 +264,7 @@ function explain(err) {
   const name = err && err.name ? err.name : "";
   if (name === "NotFoundError" || /No device selected/i.test(msg))
     return ["No board was chosen.",
-            "The pop-up was closed before picking the board. Click the button again, click “STM32 STLink” in the list, then the pop-up's Connect button. If the list is empty, unplug the board and plug it back in."];
+            "The pop-up was closed before picking the board. Click Flash again, click “STM32 STLink” in the list, then the pop-up's Connect button. If the list is empty, unplug the board and plug it back in."];
   if (name === "SecurityError" || /Access denied|claim|Unable to/i.test(msg))
     return ["Something else is using the board.",
             "Close any other tab or app that talks to the board, unplug it, plug it back in, and try again."];
@@ -116,7 +275,7 @@ function explain(err) {
     return ["The board's programmer is too old for this page.",
             "Its built-in software needs a one-time update with ST's updater app. Copy the technical details below and ask for help."];
   if (/Verify error/i.test(msg))
-    return ["The program didn't copy correctly.", "Click the button to try again."];
+    return ["The program didn't copy correctly.", "Click Flash to try again."];
   if (/download failed/.test(msg))
     return ["Couldn't download the program.", "Check the internet connection and reload this page."];
   return ["Something went wrong.", "Unplug the board, plug it back in, and try once more. If it happens again, copy the technical details below and ask for help."];
@@ -124,7 +283,7 @@ function explain(err) {
 
 if (!("usb" in navigator)) {
   setDisabled(true);
-  say("This browser can't talk to USB devices.", "bad", "Open this page in Google Chrome or Microsoft Edge on a computer.");
+  say("This browser can't talk to USB devices, so flashing is off.", "busy", "To flash, open this page in Google Chrome or Microsoft Edge on a computer. Everything else on the page works here.");
 }
 
 buttons.forEach(button => button.addEventListener("click", async () => {
@@ -176,6 +335,478 @@ buttons.forEach(button => button.addEventListener("click", async () => {
     setDisabled(!("usb" in navigator));
   }
 }));
+</script>
+
+<!-- ============ Build status, training progress and the live tank ============ -->
+<script>
+const REPO = "__REPO__";
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+function svg(tag, attrs) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " minutes ago";
+  if (s < 86400 * 2) return Math.round(s / 3600) + " hours ago";
+  return Math.round(s / 86400) + " days ago";
+}
+
+function verdict(run) {
+  if (run.status !== "completed") return ["Building now", "busy"];
+  if (run.conclusion === "success") return ["Passed", "ok"];
+  if (run.conclusion === "cancelled" || run.conclusion === "skipped") return ["Cancelled", "busy"];
+  return ["Failed", "bad"];
+}
+
+// ---------- headline numbers ----------
+
+function showTiles(s) {
+  const tiles = $("tiles");
+  tiles.replaceChildren();
+  const add = (label, value, note) => {
+    const t = el("div", undefined, "tile");
+    t.append(el("div", label, "label"), el("div", value, "value"), el("div", note || "", "note"));
+    tiles.append(t);
+  };
+  if (!s.fish) return;
+  const one = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
+  add("Generations trained", s.fish.generations.toLocaleString(), "in " + s.fish.seconds + " seconds, this build");
+  add("Food per fish", s.fish.trained.food.toFixed(2), "in 100 s · instincts alone: " + s.fish.instinct.food.toFixed(2));
+  add("Fish eaten", one(s.fish.trained.eaten_fish), "per tank in 100 s · instincts: " + one(s.fish.instinct.eaten_fish));
+  add("Fish starved", one(s.fish.trained.starved), "per tank in 100 s · instincts: " + one(s.fish.instinct.starved));
+}
+
+// ---------- training chart ----------
+
+let trainingPoints = null; // [generation, best score, average score] for each point
+
+function niceStep(span, count) {
+  const raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const f = raw / mag;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
+}
+
+function drawChart() {
+  const pts = trainingPoints, box = $("chart"), root = box.querySelector("svg");
+  root.replaceChildren();
+  if (!pts || pts.length < 2) return;
+  const W = box.clientWidth, H = 250;
+  const m = { l: 40, r: W < 520 ? 12 : 92, t: 10, b: 34 };
+  root.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  const xs = pts.map(p => p[0]);
+  const lo = Math.min(0, ...pts.map(p => Math.min(p[1], p[2])));
+  const hi = Math.max(...pts.map(p => Math.max(p[1], p[2])));
+  const step = niceStep(hi - lo, 4);
+  const y0 = Math.floor(lo / step) * step, y1 = Math.ceil(hi / step) * step;
+  const X = (g) => m.l + (g - xs[0]) / (xs[xs.length - 1] - xs[0]) * (W - m.l - m.r);
+  const Y = (v) => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+
+  for (let v = y0; v <= y1 + 1e-9; v += step) {
+    root.append(svg("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid"), "stroke-width": 1 }));
+    const t = svg("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" });
+    t.textContent = String(Math.round(v));
+    root.append(t);
+  }
+  const xstep = niceStep(xs[xs.length - 1] - xs[0], W < 520 ? 3 : 6);
+  for (let g = Math.ceil(xs[0] / xstep) * xstep; g <= xs[xs.length - 1]; g += xstep) {
+    const t = svg("text", { x: X(g), y: H - m.b + 16, "text-anchor": "middle" });
+    t.textContent = String(g);
+    root.append(t);
+  }
+  const xt = svg("text", { x: (m.l + W - m.r) / 2, y: H - 2, "text-anchor": "middle" });
+  xt.textContent = "Generation";
+  root.append(xt);
+
+  const series = [[1, "--series-2", "Best fish"], [2, "--series-1", "Average fish"]];
+  for (const [col, color, label] of series) {
+    const d = pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[col]).toFixed(1)).join(" ");
+    root.append(svg("path", { d, fill: "none", stroke: css(color), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    if (m.r > 50) { // room for a label at the end of the line
+      const t = svg("text", { x: W - m.r + 8, y: Y(pts[pts.length - 1][col]) + 4 });
+      t.textContent = label;
+      root.append(t);
+    }
+  }
+
+  // Hover: a vertical guide, a dot on each line, and the values.
+  const guide = svg("line", { y1: m.t, y2: H - m.b, stroke: css("--muted"), "stroke-width": 1, visibility: "hidden" });
+  const dots = series.map(([, color]) => svg("circle", { r: 4, fill: css(color), stroke: css("--card"), "stroke-width": 2, visibility: "hidden" }));
+  const catcher = svg("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  root.append(guide, ...dots, catcher);
+  const tip = $("tip");
+  const hide = () => { guide.setAttribute("visibility", "hidden"); dots.forEach(d => d.setAttribute("visibility", "hidden")); tip.style.display = "none"; };
+  catcher.addEventListener("pointerleave", hide);
+  catcher.addEventListener("pointermove", (ev) => {
+    const r = root.getBoundingClientRect();
+    const px = (ev.clientX - r.left) * (W / r.width);
+    let near = 0;
+    for (let i = 1; i < pts.length; i++) if (Math.abs(X(xs[i]) - px) < Math.abs(X(xs[near]) - px)) near = i;
+    const p = pts[near], x = X(p[0]);
+    guide.setAttribute("x1", x); guide.setAttribute("x2", x); guide.setAttribute("visibility", "visible");
+    series.forEach(([col], k) => { dots[k].setAttribute("cx", x); dots[k].setAttribute("cy", Y(p[col])); dots[k].setAttribute("visibility", "visible"); });
+    tip.replaceChildren(el("b", "Generation " + p[0]));
+    for (const [col, color, label] of series) {
+      const row = el("div");
+      const mark = el("i");
+      mark.style.borderColor = css(color);
+      row.append(mark, document.createTextNode(label + ": " + p[col].toFixed(1)));
+      tip.append(row);
+    }
+    tip.style.display = "block";
+    const left = x + 12 + tip.offsetWidth > W ? x - 12 - tip.offsetWidth : x + 12;
+    tip.style.left = Math.max(0, left) + "px";
+    tip.style.top = "8px";
+  });
+}
+window.addEventListener("resize", drawChart);
+
+// ---------- what the last build published ----------
+
+async function loadPublished() {
+  try {
+    const r = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+
+    for (const p of s.programs) {
+      const slot = document.querySelector('[data-size="' + p.name + '"]');
+      if (slot) slot.textContent = p.bytes.toLocaleString() + " bytes";
+    }
+    showTiles(s);
+
+    if (s.fish) {
+      $("training-summary").textContent =
+        "Every build trains the fish brains from scratch on GitHub. A population of 100 brains lives in fast-forward " +
+        "tanks; each generation, the best quarter have children with small random changes. This build ran " +
+        s.fish.generations.toLocaleString() + " generations in " + s.fish.seconds + " seconds. " +
+        "The score rewards eating, hunting and schooling, and punishes starving, being eaten and bumping walls. " +
+        "It jumps about because every tank is a different random mix of fish.";
+      const body = $("training");
+      body.replaceChildren();
+      const one = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
+      for (const [label, m] of [["Hand-written instincts", s.fish.instinct], ["Trained brains", s.fish.trained]]) {
+        const row = el("tr");
+        row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", one(m.eaten_fish), "num"),
+                   el("td", one(m.starved), "num"), el("td", m.score.toFixed(1), "num"));
+        body.append(row);
+      }
+      $("training-table").hidden = false;
+
+      if (s.fish.history && s.fish.history.length > 1) {
+        trainingPoints = s.fish.history;
+        drawChart();
+        const rows = $("history-table");
+        rows.replaceChildren();
+        const every = Math.max(1, Math.floor(trainingPoints.length / 15));
+        trainingPoints.forEach((p, i) => {
+          if (i % every && i !== trainingPoints.length - 1) return;
+          const row = el("tr");
+          row.append(el("td", String(p[0]), "num"), el("td", p[1].toFixed(1), "num"), el("td", p[2].toFixed(1), "num"));
+          rows.append(row);
+        });
+      }
+    } else {
+      $("training-summary").textContent = "No training results in the last build.";
+    }
+    return s;
+  } catch (e) {
+    $("training-summary").textContent = "Couldn't load training results.";
+    return null;
+  }
+}
+
+// ---------- how builds are going right now (asked from GitHub directly) ----------
+
+async function loadRuns(published) {
+  try {
+    const r = await fetch("https://api.github.com/repos/" + REPO + "/actions/runs?per_page=6&branch=main");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const runs = (await r.json()).workflow_runs || [];
+    if (!runs.length) throw new Error("no runs");
+
+    const [word, cls] = verdict(runs[0]);
+    $("pill").textContent = word;
+    $("pill").className = "pill " + cls;
+    $("headline").textContent = "Build " + runs[0].run_number;
+    const detail = $("detail");
+    detail.replaceChildren(document.createTextNode((runs[0].display_title || "") + " · " + ago(runs[0].created_at) + " · "));
+    const link = el("a", "details on GitHub");
+    link.href = runs[0].html_url;
+    detail.append(link);
+
+    const list = $("runs");
+    list.replaceChildren();
+    for (const run of runs) {
+      const [w, c] = verdict(run);
+      const li = el("li");
+      const a = el("a", "#" + run.run_number);
+      a.href = run.html_url;
+      li.append(el("span", w, "pill " + c), a, el("span", run.display_title || "", "what"), el("span", ago(run.created_at), "muted small"));
+      list.append(li);
+    }
+    $("note").textContent = "";
+  } catch (e) {
+    // GitHub limits how often a browser may ask; fall back to what the last build recorded.
+    if (published) {
+      $("pill").textContent = "Passed";
+      $("pill").className = "pill ok";
+      $("headline").textContent = "Build " + published.build;
+      $("detail").textContent = (published.commit_message || "") + " · " + ago(published.time);
+    } else {
+      $("pill").textContent = "Unknown";
+      $("headline").textContent = "";
+      $("detail").textContent = "Couldn't reach GitHub or the published details.";
+    }
+    $("runs").replaceChildren(el("li", "GitHub isn't answering right now (it limits how often it can be asked). Try again in a few minutes.", "muted"));
+    $("note").textContent = "Live build status is unavailable at the moment; showing the last published build.";
+  }
+}
+
+async function refresh() {
+  const published = await loadPublished();
+  await loadRuns(published);
+}
+refresh();
+setInterval(refresh, 60000);
+
+// ---------- the live tank ----------
+
+const TANK_W = 240, TANK_H = 224;
+const STARTING_TINTS = [
+  [255, 140, 0], [255, 90, 90], [255, 210, 60], [120, 230, 120], [90, 200, 255],
+  [200, 140, 255], [255, 150, 200], [240, 240, 240], [160, 255, 220], [180, 220, 90],
+];
+const NAMES = ["ADA", "BOB", "CAL", "DOT", "EVE", "FIN", "GUS", "HAL", "IVY", "JAX", "KIT", "LEO", "MAX",
+  "NED", "OAK", "PIP", "RAY", "SAM", "TAD", "UMA", "VIC", "WES", "XAN", "YAZ", "ZOE"];
+const EV_BIT = 0, EV_ATE = 1, EV_STARVED = 2, EV_BORN = 3, EV_LIKES = 4, EV_HATES = 5; // as in fish_sim.h
+
+async function startTank() {
+  const canvas = $("tank"), ctx = canvas.getContext("2d");
+  let sim;
+  try {
+    const bytes = await (await fetch("fish.wasm?t=" + Date.now(), { cache: "no-store" })).arrayBuffer();
+    sim = (await WebAssembly.instantiate(bytes, {})).instance.exports;
+  } catch (e) {
+    $("tank-note").textContent = "The live tank couldn't start in this browser.";
+    return;
+  }
+  const N = sim.web_n_fish(), N_FOOD = sim.web_n_food(), PER = sim.web_per_fish(), HEAD = sim.web_header();
+  const FOOD_AT = HEAD + N * PER, LIKE_AT = FOOD_AT + N_FOOD * 3;
+  const state = () => new Float32Array(sim.memory.buffer, sim.web_state(), LIKE_AT + N * N);
+  const events = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim.web_max_events() * 3);
+
+  let look, nextName, lastHealth, flash, cards, paused = false, ticks = 0, logEmpty = true;
+
+  function buildRoster() {
+    const roster = $("roster");
+    roster.replaceChildren();
+    cards = [];
+    for (let i = 0; i < N; i++) {
+      const card = el("div", undefined, "fishcard");
+      const top = el("div", undefined, "top");
+      const dot = el("span", undefined, "dot"), who = el("span", "", "who"), extra = el("span", "", "extra");
+      top.append(dot, who, extra);
+      const meter = (label, color) => {
+        const row = el("div", undefined, "meter"), track = el("div", undefined, "trackbar"), fill = el("div", undefined, "fill");
+        fill.style.background = color;
+        track.append(fill);
+        row.append(el("span", label), track);
+        card.append(row);
+        return fill;
+      };
+      card.append(top);
+      const health = meter("Health", "var(--health)"), hunger = meter("Hunger", "var(--hunger)");
+      const feel = el("div", undefined, "feel");
+      const friend = el("span", undefined, "dot"), enemy = el("span", undefined, "dot");
+      const a = el("span"), b = el("span");
+      a.append(document.createTextNode("+"), friend);
+      b.append(document.createTextNode("−"), enemy);
+      feel.append(a, b);
+      card.append(feel);
+      roster.append(card);
+      cards.push({ dot, who, extra, health, hunger, friend, enemy });
+    }
+  }
+
+  function logEvent(icon, text) {
+    const list = $("events");
+    if (logEmpty) { list.replaceChildren(); logEmpty = false; }
+    const seconds = Math.floor(ticks / 30);
+    const li = el("li");
+    li.append(el("time", Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")), el("span", icon, "icon"), el("span", text));
+    list.prepend(li); // newest on top
+    while (list.children.length > 60) list.lastChild.remove();
+  }
+
+  function reset() {
+    sim.web_init((Math.random() * 0xFFFFFFFF) >>> 0);
+    look = [];
+    nextName = 0;
+    ticks = 0;
+    for (let i = 0; i < N; i++) look.push({ tint: STARTING_TINTS[i % STARTING_TINTS.length].slice(), marking: i % 3, name: NAMES[nextName++ % NAMES.length] });
+    lastHealth = new Array(N).fill(1);
+    flash = new Array(N).fill(0);
+    buildRoster();
+    $("events").replaceChildren(el("li", "Nothing yet. Give them a minute.", "muted"));
+    logEmpty = true;
+  }
+
+  const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
+  const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
+
+  function step() {
+    sim.web_step();
+    ticks++;
+    const ev = events(), s = state();
+    for (let n = 0; n < ev[0]; n++) {
+      const type = ev[1 + n * 3], a = ev[2 + n * 3], b = ev[3 + n * 3];
+      const A = title(look[a].name), B = title(look[b].name);
+      if (type === EV_BIT) logEvent("🦷", A + " bit " + B);
+      else if (type === EV_ATE) logEvent("🍽️", A + " ate " + B);
+      else if (type === EV_STARVED) logEvent("💀", A + " starved");
+      else if (type === EV_LIKES) logEvent("💚", A + " now likes " + B);
+      else if (type === EV_HATES) logEvent("💢", A + " now hates " + B);
+      else if (type === EV_BORN) { // the fish doing best had a baby, in the dead fish's place
+        look[a] = {
+          tint: look[b].tint.map(v => Math.min(255, Math.max(70, v + Math.floor(Math.random() * 61) - 30))),
+          marking: Math.random() < 0.125 ? Math.floor(Math.random() * 3) : look[b].marking,
+          name: NAMES[nextName++ % NAMES.length],
+        };
+        lastHealth[a] = 1;
+        flash[a] = 0;
+        logEvent("🐣", title(look[a].name) + " was born to " + B);
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      const health = s[HEAD + i * PER + 7];
+      if (health < lastHealth[i] - 0.2) flash[i] = 8;
+      else if (flash[i]) flash[i]--;
+      lastHealth[i] = health;
+    }
+  }
+
+  function draw() {
+    const s = state(), k = canvas.width / TANK_W;
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    const water = ctx.createLinearGradient(0, 0, 0, TANK_H);
+    water.addColorStop(0, "rgb(8,60,110)");
+    water.addColorStop(1, "rgb(2,16,48)");
+    ctx.fillStyle = water;
+    ctx.fillRect(0, 0, TANK_W, TANK_H);
+
+    ctx.fillStyle = "rgb(255,230,120)";
+    for (let f = 0; f < N_FOOD; f++) {
+      if (s[FOOD_AT + f * 3 + 2]) ctx.fillRect(s[FOOD_AT + f * 3] - 1.5, s[FOOD_AT + f * 3 + 1] - 1.5, 3, 3);
+    }
+
+    ctx.font = "bold 6.5px ui-monospace, Menlo, monospace";
+    ctx.textAlign = "center";
+    for (let i = 0; i < N; i++) {
+      const o = HEAD + i * PER;
+      const x = s[o], y = s[o + 1], dx = s[o + 2], dy = s[o + 3], size = s[o + 4], slim = s[o + 5], energy = s[o + 6];
+      const glow = 0.45 + 0.55 * energy;
+      const tint = flash[i] ? [255, 40, 40] : look[i].tint, g = flash[i] ? 1 : glow;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.scale(size * slim, size / slim); // the same standard fish shape as on the board, stretched
+      ctx.fillStyle = rgb(tint, g * 2 / 3); // tail
+      ctx.beginPath(); ctx.moveTo(-3, -0.6); ctx.lineTo(-8.5, -3.9); ctx.lineTo(-8.5, 3.9); ctx.lineTo(-3, 0.6); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = rgb(tint, g); // body
+      ctx.beginPath(); ctx.ellipse(1, 0, 5, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+      if (look[i].marking) {
+        ctx.save();
+        ctx.clip();
+        ctx.fillStyle = rgb(tint, g * 2 / 5);
+        if (look[i].marking === 1) ctx.fillRect(-0.4, -3, 1.6, 6);
+        else ctx.fillRect(-5, -3, 12, 2.1);
+        ctx.restore();
+      }
+      ctx.fillStyle = "rgb(10,10,30)"; // eye
+      ctx.beginPath(); ctx.arc(3.6, -1, 0.95, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+
+      // Nametag: above the fish, or below it at the top of the tank (as on the board).
+      const reach = 8.5 * size * slim + 2, above = y - reach - 8 >= 0;
+      ctx.fillStyle = rgb(look[i].tint.map(v => (v + 255) / 2), 1);
+      ctx.fillText(look[i].name, Math.min(TANK_W - 10, Math.max(10, x)), above ? y - reach - 2 : y + reach + 8);
+    }
+  }
+
+  function updateRoster() {
+    const s = state();
+    $("c-fed").textContent = Math.round(s[1]);
+    $("c-eaten").textContent = Math.round(s[2]);
+    $("c-starved").textContent = Math.round(s[3]);
+    $("c-born").textContent = Math.round(s[4]);
+    for (let i = 0; i < N; i++) {
+      const o = HEAD + i * PER, c = cards[i], health = s[o + 7], hunger = 1 - s[o + 6], kills = Math.round(s[o + 10]);
+      c.dot.style.background = rgb(look[i].tint, 1);
+      c.who.textContent = look[i].name;
+      c.extra.textContent = "size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
+      c.health.style.width = Math.round(health * 100) + "%";
+      c.health.style.background = health < 0.35 ? "var(--health-low)" : "var(--health)";
+      c.hunger.style.width = Math.round(hunger * 100) + "%";
+      let best = -1, worst = -1, bestLike = 0.15, worstLike = -0.15;
+      for (let j = 0; j < N; j++) {
+        if (j === i) continue;
+        const feeling = s[LIKE_AT + i * N + j];
+        if (feeling > bestLike) { bestLike = feeling; best = j; }
+        if (feeling < worstLike) { worstLike = feeling; worst = j; }
+      }
+      for (const [node, who, word] of [[c.friend, best, "Best friend"], [c.enemy, worst, "Worst enemy"]]) {
+        node.className = who < 0 ? "dot empty" : "dot";
+        node.style.background = who < 0 ? "" : rgb(look[who].tint, 1);
+        node.title = who < 0 ? word + ": none yet" : word + ": " + look[who].name;
+      }
+    }
+  }
+
+  // Run the tank at the board's pace: 30 ticks a second.
+  let owed = 0, last = performance.now(), sinceRoster = 0;
+  function frame(now) {
+    const dt = Math.min(200, now - last);
+    last = now;
+    if (!paused) {
+      owed += dt;
+      let did = 0;
+      while (owed >= 1000 / 30 && did < 4) { step(); owed -= 1000 / 30; did++; }
+      if (did === 4) owed = 0;
+    }
+    draw();
+    sinceRoster += dt;
+    if (sinceRoster > 250) { updateRoster(); sinceRoster = 0; }
+    requestAnimationFrame(frame);
+  }
+
+  canvas.addEventListener("pointerdown", (ev) => {
+    const r = canvas.getBoundingClientRect();
+    sim.web_feed((ev.clientX - r.left) / r.width * TANK_W, (ev.clientY - r.top) / r.height * TANK_H);
+  });
+  $("feed").addEventListener("click", () => sim.web_feed_anywhere());
+  $("restart").addEventListener("click", reset);
+  $("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "Play" : "Pause"; });
+
+  reset();
+  updateRoster();
+  $("tank-note").textContent = "Brains from this build's training (" + sim.web_generations().toLocaleString() + " generations). " +
+    "Each visit starts a new random tank, so no two runs are the same.";
+  requestAnimationFrame(frame);
+}
+startTank();
 </script>
 </body>
 </html>

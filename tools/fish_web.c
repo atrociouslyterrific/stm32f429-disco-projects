@@ -1,10 +1,11 @@
 // The bridge between the fish rules (Fish/fish_sim.c) and a web page.
 //
 // GitHub compiles this, together with fish_sim.c and the freshly trained brains, into
-// fish.wasm: a file web browsers can run. The status website loads it, so the tank shown
-// there follows exactly the same rules, with the same brains, as the tank on the board.
+// fish.wasm: a file web browsers can run. The website loads it, so the tank shown there
+// follows exactly the same rules, with the same brains, as the tank on the board.
 //
-// The page calls web_step() 30 times a second and reads the numbers back from web_state().
+// The page calls web_step() 30 times a second and reads the numbers back from web_state()
+// and what happened from web_events().
 
 #include "fish_sim.h"
 #include "fish_brains.h"
@@ -30,7 +31,7 @@ void *memset(void *dst, int value, __SIZE_TYPE__ n) {
 
 static Tank tank;
 static float state[STATE_SIZE];
-static int events[1 + N_FISH * 3]; // how many fish were replaced this tick, then (who, parent, eaten by) each
+static int events[1 + MAX_EVENTS * 3]; // how many things happened this tick, then (type, a, b) for each
 static unsigned born;
 
 static void publish(void) {
@@ -52,6 +53,13 @@ static void publish(void) {
   }
   for (int i = 0; i < N_FISH; i++)
     for (int j = 0; j < N_FISH; j++) *p++ = tank.like[i][j];
+
+  events[0] = tank.n_events;
+  for (int e = 0; e < tank.n_events; e++) {
+    events[1 + e * 3] = tank.events[e].type;
+    events[2 + e * 3] = tank.events[e].a;
+    events[3 + e * 3] = tank.events[e].b;
+  }
 }
 
 EXPORT void web_init(unsigned seed) {
@@ -59,26 +67,18 @@ EXPORT void web_init(unsigned seed) {
   for (int i = 0; i < N_FISH; i++)
     for (int w = 0; w < N_WEIGHTS; w++) tank.fish[i].brain.w[w] = FISH_BRAINS[i][w];
   born = 0;
-  events[0] = 0;
   publish();
 }
 
 EXPORT void web_step(void) {
   tank_step(&tank);
-  int n = 0;
   for (int i = 0; i < N_FISH; i++) {
     tank.fish[i].score *= 0.9995f; // old successes slowly count for less (as on the board)
-    if (tank.fish[i].dead) {
-      int eaten_by = tank.fish[i].eaten_by;
-      int parent = tank_replace(&tank, i);
-      events[1 + n * 3] = i;
-      events[2 + n * 3] = parent;
-      events[3 + n * 3] = eaten_by;
-      n++;
+    if (tank.fish[i].dead) {       // the best fish has a baby in its place
+      tank_replace(&tank, i);
       born++;
     }
   }
-  events[0] = n;
   publish();
 }
 
@@ -91,4 +91,5 @@ EXPORT int web_n_fish(void) { return N_FISH; }
 EXPORT int web_n_food(void) { return N_FOOD; }
 EXPORT int web_per_fish(void) { return PER_FISH; }
 EXPORT int web_header(void) { return HEADER; }
+EXPORT int web_max_events(void) { return MAX_EVENTS; }
 EXPORT int web_generations(void) { return FISH_BRAINS_GENERATIONS; }

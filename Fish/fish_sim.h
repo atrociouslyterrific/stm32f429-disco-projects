@@ -31,7 +31,7 @@ typedef struct {
   float speed;
   float energy;   // 1 = full, 0 = empty. Hunger is 1 - energy.
   float health;   // 1 = fine, 0 = dead. Falls when starving or bitten, heals when well fed.
-  float size;     // how big it is right now (1 = average); grows as it eats
+  float size;     // how big it is right now (1 = average). The more it eats, the bigger it gets.
 
   // What it was born with ("genes"):
   float max_size; // how big it can grow
@@ -52,6 +52,20 @@ typedef struct {
   uint8_t there;
 } Food;
 
+// Things worth telling someone about. a and b are fish numbers.
+enum {
+  EV_BIT,     // a bit b
+  EV_ATE,     // a ate b
+  EV_STARVED, // a starved
+  EV_BORN,    // a was born, the baby of b
+  EV_LIKES,   // a has come to like b
+  EV_HATES,   // a has come to hate b
+};
+typedef struct {
+  uint8_t type, a, b;
+} Event;
+#define MAX_EVENTS 24
+
 typedef struct {
   Fish fish[N_FISH];
   Food food[N_FOOD];
@@ -63,6 +77,9 @@ typedef struct {
   uint32_t total_eaten;  // food pellets eaten
   uint32_t total_killed; // fish eaten by other fish
   uint32_t total_starved;
+  // What happened during the latest tick (plus any babies born since). Emptied every tick.
+  Event events[MAX_EVENTS];
+  uint8_t n_events;
 } Tank;
 
 // Random numbers (the same sequence for the same starting seed).
