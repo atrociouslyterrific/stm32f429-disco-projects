@@ -952,6 +952,12 @@ const FOUNDER_COLOURS = [ // as in fish_sim.c
 ];
 const NAMES = ["ADA", "BOB", "CAL", "DOT", "EVE", "FIN", "GUS", "HAL", "IVY", "JAX", "KIT", "LEO", "MAX",
   "NED", "OAK", "PIP", "RAY", "SAM", "TAD", "UMA", "VIC", "WES", "XAN", "YAZ", "ZOE"];
+// The n-th name given out: the list, then the list again as "ADA II", "BOB II", and so on.
+const ROMAN = ["", " II", " III", " IV", " V", " VI", " VII", " VIII", " IX", " X"];
+function nameFor(n) {
+  const round = Math.floor(n / NAMES.length);
+  return NAMES[n % NAMES.length] + (round < ROMAN.length ? ROMAN[round] : " " + (round + 1));
+}
 const SPECIES = ["Fry", "Squid", "Turtle", "Shark", "Ray", "Orca", "Whale"]; // the kinds of sea animal, as in fish_sim.h
 // How far each kind reaches from its middle on the standard grid (as in Fish/main.c).
 const REACH_ALONG = [6.5, 8.5, 7.0, 9.5, 9.0, 9.5, 10.0], REACH_ACROSS = [2.8, 3.5, 5.5, 5.2, 5.5, 5.6, 4.9];
@@ -1094,7 +1100,7 @@ async function startTank() {
     look = [];
     nextName = 0;
     ticks = 0;
-    for (let i = 0; i < N; i++) look.push({ name: NAMES[nextName++ % NAMES.length] });
+    for (let i = 0; i < N; i++) look.push({ name: nameFor(nextName++) });
     resetFamilies();
     lastHealth = new Array(N).fill(HEALTH_LIMIT);
     flash = new Array(N).fill(0);
@@ -1117,7 +1123,7 @@ async function startTank() {
       else if (type === EV_FOUGHT) logEvent("⚔️", A + " fought " + B, clock());
       else if (type === EV_EVOLVED) logEvent("✨", A + " evolved into " + (SPECIES[b] === "Orca" ? "an " : "a ") + SPECIES[b], clock());
       else if (type === EV_BORN) { // the animal doing best had a baby with a partner, in the dead one's place
-        look[a] = { name: NAMES[nextName++ % NAMES.length] };
+        look[a] = { name: nameFor(nextName++) };
         lastHealth[a] = HEALTH_LIMIT;
         flash[a] = 0;
         logEvent("🐣", title(look[a].name) + " was born to " + B + " and " + title(look[c].name), clock());
@@ -1341,9 +1347,12 @@ async function startTank() {
       let r = registry.get(id);
       if (!r) {
         r = { id, mum: Math.round(s[o + 17]), dad: Math.round(s[o + 18]), family: Math.round(s[o + 19]), gen: Math.round(s[o + 20]), born: now, died: null };
+        // The same name may come round again (a board has only 25 to give out): number repeats.
+        const same = [...registry.values()].filter(x => x.given === looks[i].name).length;
+        r.given = looks[i].name;
+        r.name = looks[i].name + (same ? (same < ROMAN.length ? ROMAN[same] : " " + (same + 1)) : "");
         registry.set(id, r);
       }
-      r.name = looks[i].name;
       r.tint = looks[i].tint;
       r.marking = looks[i].marking;
       r.kind = Math.round(s[o + 15]);

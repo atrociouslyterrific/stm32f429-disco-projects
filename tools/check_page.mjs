@@ -58,6 +58,7 @@ const facts = await page.evaluate(() => {
     treeNodes: document.querySelectorAll("#tree .ft-node").length,
     treeSummary: text("tree-summary").slice(0, 90),
     treeLines: document.querySelectorAll("#tree .ft-line").length,
+    treeNames: [...document.querySelectorAll("#tree .ft-node text")].map(t => t.textContent),
   };
 });
 await page.screenshot({ path: shot, fullPage: true });
@@ -75,6 +76,8 @@ if (facts.flashButtons !== 3) problems.push("expected 3 Flash buttons");
 if (!/Right now:/.test(facts.evolutionSummary)) problems.push("the evolution diagram didn't fill in");
 if (facts.genePoolRows < 9) problems.push("the gene pool has " + facts.genePoolRows + " rows");
 if (facts.newerBanner) problems.push("the page thinks it is out of date");
+if (new Set(facts.treeNames).size !== facts.treeNames.length) problems.push("two animals in the family tree share a name");
+delete facts.treeNames;
 if (facts.treeNodes < 12) problems.push("the family tree has " + facts.treeNodes + " animals in it after five minutes");
 if (!/over [2-9]\d* generations|over \d{2,} generations/.test(facts.treeSummary)) problems.push("the family tree has only one generation after five minutes: " + facts.treeSummary);
 for (const p of problems) console.log("PROBLEM: " + p);
