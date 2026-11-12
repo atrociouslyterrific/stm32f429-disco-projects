@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STM32 board flasher</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1c2330; --muted: #5d6778; --line: #dfe3ea;
+    --accent: #1f6feb; --accent-text: #ffffff; --ok: #1a7f37; --bad: #b42318; --warn: #8a5a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151a; --card: #1b2028; --text: #e7ebf2; --muted: #9aa5b6; --line: #2c3340;
+      --accent: #4c8dff; --accent-text: #0b1020; --ok: #4cc26b; --bad: #ff7b72; --warn: #e3b341;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  ol { margin: 0; padding-left: 1.3em; }
+  li { margin-bottom: 6px; }
+  button#go {
+    width: 100%; padding: 14px; font-size: 1.1rem; font-weight: 600; border: 0; border-radius: 10px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  button#go:disabled { opacity: .55; cursor: default; }
+  #status { margin: 16px 0 0; font-weight: 600; min-height: 1.5em; }
+  #status.ok { color: var(--ok); } #status.bad { color: var(--bad); } #status.busy { color: var(--muted); }
+  #help { margin: 6px 0 0; color: var(--muted); }
+  details { margin-top: 14px; color: var(--muted); }
+  #log { font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; }
+  #log .error { color: var(--bad); } #log .warning { color: var(--warn); }
+  progress { width: 100%; }
+  .foot { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>STM32 board flasher</h1>
+  <p class="sub">Puts the <strong>Blink</strong> program on the STM32F429I-DISCO board. Build <span id="build">__BUILD__</span>.</p>
+
+  <div class="card">
+    <ol>
+      <li>Plug the board into the computer with the mini-USB cable (the socket marked <em>USB ST-LINK</em>).</li>
+      <li>Click the button below.</li>
+      <li>Chrome shows a small pop-up. Click <strong>STM32 STLink</strong> in its list, then click the pop-up's <strong>Connect</strong> button.</li>
+      <li>Wait a few seconds. The green and red lights beside the screen start taking turns.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <button id="go">Flash Blink</button>
+    <p id="status" role="status"></p>
+    <p id="help"></p>
+    <details>
+      <summary>Technical details (copy these if something goes wrong)</summary>
+      <div id="log"></div>
+    </details>
+  </div>
+
+  <p class="foot">The screen stays blank while Blink runs; this program only uses the lights.
+  Works in Chrome or Edge on a computer. Uses <a href="https://github.com/devanlai/webstlink">webstlink</a> (MIT).</p>
+</main>
+
+<script type="module">
+import WebStlink from "./webstlink/webstlink.js";
+import * as libstlink from "./webstlink/lib/package.js";
+
+const FLASH_START = 0x08000000;
+const go = document.getElementById("go");
+const statusEl = document.getElementById("status");
+const helpEl = document.getElementById("help");
+const logEl = document.getElementById("log");
+const logger = new libstlink.Logger(2, logEl);
+
+function say(text, kind = "busy", help = "") {
+  statusEl.textContent = text;
+  statusEl.className = kind;
+  helpEl.textContent = help;
+}
+
+// Turn a technical error into something a person can act on.
+function explain(err) {
+  const msg = String(err && err.message ? err.message : err);
+  const name = err && err.name ? err.name : "";
+  if (name === "NotFoundError" || /No device selected/i.test(msg))
+    return ["No board was chosen.",
+            "The pop-up was closed before picking the board. Click the button again, click “STM32 STLink” in the list, then the pop-up's Connect button. If the list is empty, unplug the board and plug it back in."];
+  if (name === "SecurityError" || /Access denied|claim|Unable to/i.test(msg))
+    return ["Something else is using the board.",
+            "Close any other tab or app that talks to the board, unplug it, plug it back in, and try again."];
+  if (/Not connected to CPU/i.test(msg))
+    return ["The programmer can't reach the main chip.",
+            "Check the two small jumpers next to the mini-USB socket (marked ST-LINK) are both fitted, then try again."];
+  if (/is not supported/i.test(msg))
+    return ["The board's programmer is too old for this page.",
+            "Its built-in software needs a one-time update with ST's updater app. Copy the technical details below and ask for help."];
+  if (/Verify error/i.test(msg))
+    return ["The program didn't copy correctly.", "Click the button to try again."];
+  if (/Blink\.bin/.test(msg))
+    return ["Couldn't download the program.", "Check the internet connection and reload this page."];
+  return ["Something went wrong.", "Unplug the board, plug it back in, and try once more. If it happens again, copy the technical details below and ask for help."];
+}
+
+if (!("usb" in navigator)) {
+  go.disabled = true;
+  say("This browser can't talk to USB devices.", "bad", "Open this page in Google Chrome or Microsoft Edge on a computer.");
+}
+
+go.addEventListener("click", async () => {
+  go.disabled = true;
+  logger.clear();
+  let stlink = null;
+  try {
+    say("Getting the program…");
+    const resp = await fetch("Blink.bin?t=" + Date.now(), { cache: "no-store" });
+    if (!resp.ok) throw new Error("Blink.bin download failed: HTTP " + resp.status);
+    const data = new Uint8Array(await resp.arrayBuffer());
+    logger.info(`Blink.bin: ${data.length} bytes`);
+
+    say("Choose “STM32 STLink” in the pop-up, then click Connect.");
+    const device = await navigator.usb.requestDevice({ filters: libstlink.usb.filters });
+
+    say("Connecting to the board…");
+    const link = new WebStlink(logger);
+    await link.attach(device, logger);
+    stlink = link;
+
+    const target = await stlink.detect_cpu([], null);
+    logger.info(`Chip: ${target.type}, ${target.flash_size} KB flash`);
+
+    let st = await stlink.inspect_cpu();
+    if (!st.debug) {
+      await stlink.set_debug_enable(true);
+      st = await stlink.inspect_cpu();
+    }
+    say("Pausing the chip…");
+    await stlink.halt();
+
+    say("Copying the program onto the chip…");
+    await stlink.flash(FLASH_START, data);
+
+    say("Starting the program…");
+    await stlink.reset(false);
+
+    say("Done. The green and red lights should be taking turns.", "ok",
+        "If they aren't, press the black button on the board once.");
+  } catch (err) {
+    console.error(err);
+    logger.error(String(err && err.stack ? err.stack : err));
+    const [what, how] = explain(err);
+    say(what, "bad", how);
+  } finally {
+    if (stlink) { try { await stlink.detach(); } catch (e) { /* already gone */ } }
+    go.disabled = !("usb" in navigator);
+  }
+});
+</script>
+</body>
+</html>

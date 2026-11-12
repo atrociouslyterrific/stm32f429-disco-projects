@@ -12,11 +12,11 @@ sends it to the board.
 ## Putting a program on the board
 
 1. Plug the board in with the mini-USB cable (the socket labelled USB ST-LINK).
-2. Download `Blink.bin` from the [latest release](../../releases/tag/latest).
-3. Open <https://devanlai.github.io/webstlink/demo/> in Chrome.
-4. Click **Connect** and pick **STM32 STLink**. If it asks for the MCU variant, pick the STM32F429 with 2 MB of flash (ZI).
-5. Click **Halt**. The Flash button stays grey until the chip is paused.
-6. In the flash section, check the address is `0x08000000`, choose `Blink.bin`, and click **Flash**.
-7. Click **Reset** on the page (or press the black reset button on the board) to start the program.
+2. Open <https://atrociouslyterrific.github.io/stm32f429-disco-projects/> in Chrome.
+3. Click **Flash Blink**, pick **STM32 STLink** in Chrome's pop-up, and click the pop-up's **Connect**.
+4. Wait a few seconds for "Done". Press the black reset button on the board if the lights don't start.
 
 The screen stays blank while Blink runs: this program only uses the lights.
+
+The page is in `site/`. It uses a copy of [webstlink](https://github.com/devanlai/webstlink)
+with one change so that boards with old factory ST-Link firmware (such as V2J17) still work.

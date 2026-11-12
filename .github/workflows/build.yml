@@ -47,10 +47,39 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           NOTES="Build ${{ github.run_number }} · $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          Flash Blink.bin from Chrome with https://devanlai.github.io/webstlink/demo/ (address 0x08000000)."
+          Put it on the board from Chrome: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
           if gh release view latest >/dev/null 2>&1; then
             gh release edit latest --notes "$NOTES"
           else
             gh release create latest --title "Latest program files" --notes "$NOTES"
           fi
           gh release upload latest Blink/Blink.bin --clobber
+
+      - name: Put the flashing website together
+        run: |
+          mkdir -p _site
+          cp -R site/. _site/
+          cp Blink/Blink.bin _site/Blink.bin
+          sed -i "s|__BUILD__|${{ github.run_number }}|g" _site/index.html
+          ls -la _site
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          path: _site
+
+  deploy:
+    # Publish the flashing website (GitHub Pages).
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
