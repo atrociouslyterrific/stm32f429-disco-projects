@@ -102,6 +102,7 @@ typedef struct {
   // Relationships: like[a][b] is how fish a feels about fish b,
   // from -1 (enemy) through 0 (stranger) to +1 (friend). It needn't be mutual.
   float like[N_FISH][N_FISH];
+  uint8_t said[N_FISH][N_FISH]; // 1 = "a likes b" has been reported, 2 = "a hates b" (so it isn't repeated)
   uint32_t rng;
   uint32_t step;
   uint32_t total_eaten;  // food pellets eaten

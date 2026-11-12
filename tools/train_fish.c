@@ -1,18 +1,28 @@
-// Trains the fish brains. Runs on GitHub during the build (never on the board).
+// Trains the fish brains. Runs on GitHub (never on the board, never on your own computer).
 //
 // It keeps a population of 100 brains and repeats, for as long as its time budget allows:
-//   1. Put the brains into tanks of 10 sea animals of mixed kinds and let them live for a while at high speed.
+//   1. Put the brains into tanks of 10 sea animals of mixed kinds and let them live for a
+//      while at high speed.
 //   2. Score each one: food eaten, swimming with the group, not bumping walls, biting
 //      when hungry, and above all not starving or getting eaten.
 //   3. Keep the best quarter. Refill the rest with children of the best: each child
 //      mixes two parents' brains and adds small random changes.
-// At the end it writes 10 good-but-different brains to fish_brains.h for the board.
+// At the end the best brains sit a longer final exam, and the top 10 go to the board.
 //
-// Usage: train_fish <brains file> [results file]   (TRAIN_SECONDS sets the time budget, default 40)
-// The optional results file is a small JSON summary shown on the status website.
+// Training can carry on from where an earlier run stopped (--population), and reports how
+// it is getting on while it runs (--progress), which is what the website's live view shows.
+//
+// Usage: train_fish --brains <file.h> [--results <file.json>] [--population <file.bin>]
+//                   [--progress <file.json>]
+//   --brains      where to write the 10 brains for the board
+//   --results     a JSON summary for the website, written at the end
+//   --population  read the whole population from here if it exists, and save it back at the end
+//   --progress    a JSON progress report, rewritten every few seconds while training
+// TRAIN_SECONDS sets the time budget (default 40).
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "fish_sim.h"
 
@@ -20,16 +30,24 @@
 #define ELITE  25
 #define ROUNDS 2     // each brain is tried in this many different tanks per generation
 #define STEPS  1200  // ticks per try (40 seconds of tank time)
-#define MAX_GENERATIONS 2000
+#define HISTORY_MAX 4096
+#define HISTORY_KEPT 300 // points remembered from one run to the next
 
 static Brain pop[POP], next_pop[POP];
 static float fit[POP];
 static int order[POP], ranked[POP];
 static Tank tank;
 static uint32_t rng = 20261112u;
-static float history_best[MAX_GENERATIONS], history_average[MAX_GENERATIONS];
 
-// One tick of a training tank. A fish that dies comes straight back as a newborn with
+// Progress so far: for a generation (counted across every run), the best and average score.
+typedef struct { uint32_t generation; float best, average; } Point;
+static Point history[HISTORY_MAX];
+static int n_history;
+static uint32_t generations_before; // generations done by earlier runs
+
+typedef struct { double food, walls, score, eaten_fish, starved, bites; } Result;
+
+// One tick of a training tank. An animal that dies comes straight back as a newborn with
 // the same brain (it has already lost points for dying), so the tank stays full.
 static void live_one_tick(void) {
   tank_step(&tank);
@@ -75,8 +93,6 @@ static void breed(void) {
 }
 
 // Fair comparison: the same 8 starting tanks, 100 seconds of tank time each.
-typedef struct { double food, walls, score, eaten_fish, starved, bites; } Result;
-
 static Result measure(const char *label, const Brain brains[N_FISH]) {
   double eaten = 0, walls = 0, score = 0, killed = 0, starved = 0, bites = 0;
   const int tanks = 8, steps = 3000;
@@ -89,7 +105,7 @@ static Result measure(const char *label, const Brain brains[N_FISH]) {
       eaten += tank.fish[k].eaten;
       walls += tank.fish[k].wall_hits;
       score += tank.fish[k].score;
-      bites += tank.fish[k].bites; // (bites by fish that later died aren't counted)
+      bites += tank.fish[k].bites; // (bites by animals that later died aren't counted)
     }
     killed += tank.total_killed;
     starved += tank.total_starved;
@@ -101,18 +117,119 @@ static Result measure(const char *label, const Brain brains[N_FISH]) {
   return result;
 }
 
+// ---------- remembering progress ----------
+
+// Squeeze the history down to at most `limit` points by averaging neighbours together
+// (one generation on its own is very jumpy anyway).
+static void thin_history(int limit) {
+  while (n_history > limit) {
+    int out = 0;
+    for (int i = 0; i + 1 < n_history; i += 2) {
+      history[out].generation = history[i + 1].generation;
+      history[out].best = (history[i].best + history[i + 1].best) / 2;
+      history[out].average = (history[i].average + history[i + 1].average) / 2;
+      out++;
+    }
+    if (n_history & 1) history[out++] = history[n_history - 1];
+    n_history = out;
+  }
+}
+
+static void remember(uint32_t generation, float best, float average) {
+  if (n_history == HISTORY_MAX) thin_history(HISTORY_MAX / 2);
+  history[n_history].generation = generation;
+  history[n_history].best = best;
+  history[n_history].average = average;
+  n_history++;
+}
+
+// The population file: a short header, the history, then every brain.
+#define FILE_MAGIC 0x504F5046u // "FPOP"
+typedef struct { uint32_t magic, version, n_weights, pop, generations, n_history; } FileHeader;
+
+static int load_population(const char *path) {
+  FILE *in = fopen(path, "rb");
+  if (!in) return 0;
+  FileHeader h;
+  int ok = fread(&h, sizeof h, 1, in) == 1 && h.magic == FILE_MAGIC && h.version == 1 &&
+           h.n_weights == N_WEIGHTS && h.pop == POP && h.n_history <= HISTORY_KEPT &&
+           fread(history, sizeof(Point), h.n_history, in) == h.n_history &&
+           fread(pop, sizeof(Brain), POP, in) == POP;
+  fclose(in);
+  if (!ok) { printf("%s doesn't fit the current brains: starting again from the instincts\n", path); return 0; }
+  n_history = (int)h.n_history;
+  generations_before = h.generations;
+  printf("carrying on from %s: %u generations so far\n", path, (unsigned)h.generations);
+  return 1;
+}
+
+static void save_population(const char *path, uint32_t generations) {
+  thin_history(HISTORY_KEPT);
+  FILE *out = fopen(path, "wb");
+  if (!out) { perror(path); exit(1); }
+  FileHeader h = {FILE_MAGIC, 1, N_WEIGHTS, POP, generations, (uint32_t)n_history};
+  fwrite(&h, sizeof h, 1, out);
+  fwrite(history, sizeof(Point), (size_t)n_history, out);
+  fwrite(pop, sizeof(Brain), POP, out);
+  fclose(out);
+}
+
+// Write the JSON the website reads. `before` and `after` are only known at the end.
+static void write_report(const char *path, const char *state, uint32_t generations, int run_generations,
+                         long seconds, long budget, int kept_instincts, const Result *before, const Result *after) {
+  char tmp[1024];
+  snprintf(tmp, sizeof tmp, "%s.tmp", path);
+  FILE *js = fopen(tmp, "w");
+  if (!js) { perror(tmp); exit(1); }
+  fprintf(js, "{\"state\": \"%s\", \"generations\": %u, \"run_generations\": %d, \"seconds\": %ld, \"budget\": %ld,\n",
+          state, (unsigned)generations, run_generations, seconds, budget);
+  fprintf(js, " \"updated\": %ld, \"kept_instincts\": %d, \"steps_per_try\": %d,\n", (long)time(NULL), kept_instincts, STEPS);
+
+  // About 200 points of history, each the average of a small window.
+  int window = n_history / 200 + 1;
+  fprintf(js, " \"history\": [");
+  for (int g = 0, first = 1; g + window <= n_history; g += window, first = 0) {
+    double best = 0, average = 0;
+    for (int k = 0; k < window; k++) { best += history[g + k].best; average += history[g + k].average; }
+    fprintf(js, "%s[%u, %.2f, %.2f]", first ? "" : ", ", (unsigned)history[g + window - 1].generation, best / window, average / window);
+  }
+  fprintf(js, "]");
+  if (before && after) {
+    const Result *rs[2] = {before, after};
+    const char *names[2] = {"instinct", "trained"};
+    for (int k = 0; k < 2; k++)
+      fprintf(js, ",\n \"%s\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f, \"eaten_fish\": %.3f, \"starved\": %.3f}",
+              names[k], rs[k]->food, rs[k]->walls, rs[k]->score, rs[k]->eaten_fish, rs[k]->starved);
+  }
+  fprintf(js, "}\n");
+  fclose(js);
+  rename(tmp, path); // swapped in whole, so nobody ever reads a half-written file
+}
+
 int main(int argc, char **argv) {
-  if (argc < 2) { fprintf(stderr, "usage: train_fish <output file>\n"); return 2; }
+  const char *brains_path = NULL, *results_path = NULL, *population_path = NULL, *progress_path = NULL;
+  for (int a = 1; a + 1 < argc; a += 2) {
+    if (!strcmp(argv[a], "--brains")) brains_path = argv[a + 1];
+    else if (!strcmp(argv[a], "--results")) results_path = argv[a + 1];
+    else if (!strcmp(argv[a], "--population")) population_path = argv[a + 1];
+    else if (!strcmp(argv[a], "--progress")) progress_path = argv[a + 1];
+    else { fprintf(stderr, "unknown option %s\n", argv[a]); return 2; }
+  }
+  if (!brains_path) { fprintf(stderr, "usage: train_fish --brains <file.h> [--results f.json] [--population f.bin] [--progress f.json]\n"); return 2; }
   const char *env = getenv("TRAIN_SECONDS");
   long budget = env ? atol(env) : 40;
 
-  // Start everyone from the hand-written instincts, with more and more random change.
   Brain instinct;
   brain_instinct(&instinct);
-  pop[0] = instinct;
-  for (int p = 1; p < POP; p++) brain_child(&pop[p], &instinct, &rng, 0.05f + 0.5f * (float)p / POP);
+  if (!population_path || !load_population(population_path)) {
+    // Start everyone from the hand-written instincts, with more and more random change.
+    pop[0] = instinct;
+    for (int p = 1; p < POP; p++) brain_child(&pop[p], &instinct, &rng, 0.05f + 0.5f * (float)p / POP);
+  }
+  rng ^= (uint32_t)time(NULL) * 2654435761u; // a different shuffle every run
+  rng |= 1u;
 
-  time_t start = time(NULL);
+  time_t start = time(NULL), last_report = 0;
   int generation = 0;
   for (;;) {
     evaluate();
@@ -121,16 +238,22 @@ int main(int argc, char **argv) {
     float mean = 0;
     for (int p = 0; p < POP; p++) mean += fit[p];
     mean /= POP;
-    history_best[generation] = fit[ranked[0]] / ROUNDS; // per try, so it compares with the table below
-    history_average[generation] = mean / ROUNDS;
     generation++;
-    if (generation == 1 || generation % 20 == 0)
-      printf("generation %4d: best score %.1f, average %.1f\n", generation, (double)fit[ranked[0]], (double)mean);
-    if (generation >= MAX_GENERATIONS || time(NULL) - start >= budget) break;
+    remember(generations_before + (uint32_t)generation, fit[ranked[0]] / ROUNDS, mean / ROUNDS); // per try, so it compares with the table
+    if (generation == 1 || generation % 50 == 0)
+      printf("generation %6u: best score %.1f, average %.1f\n", (unsigned)(generations_before + (uint32_t)generation), (double)fit[ranked[0]], (double)mean);
+
+    time_t now = time(NULL);
+    if (progress_path && now - last_report >= 4) {
+      write_report(progress_path, "training", generations_before + (uint32_t)generation, generation, (long)(now - start), budget, 0, NULL, NULL);
+      last_report = now;
+    }
+    if (now - start >= budget) break;
     breed();
   }
   long seconds = (long)(time(NULL) - start);
-  printf("trained for %d generations in %ld s\n", generation, seconds);
+  uint32_t generations = generations_before + (uint32_t)generation;
+  printf("trained for %d generations in %ld s (%u in total)\n", generation, seconds, (unsigned)generations);
 
   // Pick 10 for the board. One generation's score is partly luck (which tank a brain landed
   // in), so the top 30 sit a longer final exam: ten more tries each, in tanks made up of
@@ -168,9 +291,10 @@ int main(int argc, char **argv) {
   Result r_before = measure("instincts only:", before);
   Result r_after = measure("trained brains:", after);
 
-  // Training is not allowed to make the fish worse. If the trained brains don't beat the
+  // Training is not allowed to make the animals worse. If the trained brains don't beat the
   // hand-written instincts, the board gets the instincts instead, each with a small random
-  // difference so the fish still aren't identical.
+  // difference so the animals still aren't identical. (The population keeps evolving
+  // either way, so a later run can still overtake the instincts.)
   int kept_instincts = r_after.score < r_before.score;
   if (kept_instincts) {
     printf("training did not beat the instincts this time: using the instincts\n");
@@ -179,32 +303,15 @@ int main(int argc, char **argv) {
     r_after = measure("brains used:", after);
   }
 
-  if (argc > 2) {
-    FILE *js = fopen(argv[2], "w");
-    if (!js) { perror(argv[2]); return 1; }
-    fprintf(js, "{\"generations\": %d, \"seconds\": %ld, \"kept_instincts\": %d,\n", generation, seconds, kept_instincts);
-    // Progress, thinned to about 150 points. Each point is the average over a small
-    // window of generations, because one generation on its own is very jumpy.
-    int window = generation / 150 + 1;
-    fprintf(js, " \"steps_per_try\": %d, \"history\": [", STEPS);
-    for (int g = 0, first = 1; g + window <= generation; g += window, first = 0) {
-      double best = 0, average = 0;
-      for (int k = 0; k < window; k++) { best += history_best[g + k]; average += history_average[g + k]; }
-      fprintf(js, "%s[%d, %.2f, %.2f]", first ? "" : ", ", g + window, best / window, average / window);
-    }
-    fprintf(js, "],\n");
-    const Result *rs[2] = {&r_before, &r_after};
-    const char *names[2] = {"instinct", "trained"};
-    for (int k = 0; k < 2; k++)
-      fprintf(js, " \"%s\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f, \"eaten_fish\": %.3f, \"starved\": %.3f}%s\n",
-              names[k], rs[k]->food, rs[k]->walls, rs[k]->score, rs[k]->eaten_fish, rs[k]->starved, k ? "}" : ",");
-    fclose(js);
-  }
+  if (population_path) save_population(population_path, generations);
+  if (results_path) write_report(results_path, "done", generations, generation, seconds, budget, kept_instincts, &r_before, &r_after);
 
-  FILE *out = fopen(argv[1], "w");
-  if (!out) { perror(argv[1]); return 1; }
-  fprintf(out, "// Made by tools/train_fish.c during the GitHub build. Don't edit: it is replaced every build.\n");
-  fprintf(out, "#define FISH_BRAINS_GENERATIONS %d\n", generation);
+  FILE *out = fopen(brains_path, "w");
+  if (!out) { perror(brains_path); return 1; }
+  fprintf(out, "// Made by tools/train_fish.c on GitHub. Don't edit: it is replaced by every training run.\n");
+  fprintf(out, "#define FISH_BRAINS_GENERATIONS %u\n", (unsigned)generations);
+  fprintf(out, "#define FISH_BRAINS_WEIGHTS %d\n", N_WEIGHTS);
+  fprintf(out, "#define FISH_BRAINS_FISH %d\n", N_FISH);
   fprintf(out, "static const float FISH_BRAINS[N_FISH][N_WEIGHTS] = {\n");
   for (int k = 0; k < N_FISH; k++) {
     fprintf(out, "  {");
@@ -213,6 +320,6 @@ int main(int argc, char **argv) {
   }
   fprintf(out, "};\n");
   fclose(out);
-  printf("wrote %s\n", argv[1]);
+  printf("wrote %s\n", brains_path);
   return 0;
 }

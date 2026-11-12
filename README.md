@@ -42,7 +42,8 @@ code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you 
   the running chip over the USB cable and shows it live. Clicking the water then drops
   food into the board's tank.
 - **Inside a brain**: one animal's neural network, drawn live as it thinks.
-- **Training progress**: the score per generation from this build's training run.
+- **Training progress**: the score per generation across every training run, updating
+  live while a run is going.
 
 Before the site is published, `tools/check_site.mjs` checks it on GitHub: the scripts
 parse, the files are there, and a test tank lives for five minutes without going wrong.
@@ -56,3 +57,14 @@ parse, the files are there, and a test tank lives for five minutes without going
 
 The page is in `site/`. It uses a copy of [webstlink](https://github.com/devanlai/webstlink)
 with two small fixes: boards with old factory ST-Link firmware (such as V2J17) are accepted, and erasing works on F4 chips.
+
+## Training
+
+The fish brains are trained by the **Train fish brains** workflow (`.github/workflows/train.yml`),
+on GitHub's computers. It starts by itself when the tank's rules change, and can be started
+by hand from the Actions tab ("Run workflow", with a number of minutes). Each run:
+
+1. downloads the population from the last run (the `fish-brains` release) and carries on;
+2. publishes its progress every 15 seconds to the `status` branch, which the website shows;
+3. saves the population, the ten brains the board uses, and a summary back to the release;
+4. triggers a build, so the board program and the website get the new brains.

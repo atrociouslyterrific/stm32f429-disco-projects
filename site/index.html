@@ -245,6 +245,7 @@
 
   <div class="card">
     <h2>Training progress</h2>
+    <p id="training-live" class="pill busy" style="white-space:normal;border-radius:10px;padding:6px 12px;margin:0 0 12px" hidden></p>
     <p class="lead" id="training-summary">Loading…</p>
     <div class="legend">
       <span><i style="border-color:var(--series-2)"></i>Best fish</span>
@@ -260,6 +261,9 @@
         </table>
       </div>
     </details>
+    <p class="muted small" style="margin:12px 0 0">Training runs by itself whenever the tank's rules change. To give the brains more time,
+      <a id="train-link" href="https://github.com/__REPO__/actions/workflows/train.yml">start a training run on GitHub</a>
+      (the “Run workflow” button) and watch it here.</p>
     <h3>Before and after training</h3>
     <div class="scroll">
       <table id="training-table" hidden>
@@ -569,7 +573,7 @@ function showTiles(s) {
   };
   if (!s.fish) return;
   const one = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
-  add("Generations trained", s.fish.generations.toLocaleString(), "in " + s.fish.seconds + " seconds, this build");
+  add("Generations trained", s.fish.generations.toLocaleString(), "so far, across every training run");
   add("Food per fish", s.fish.trained.food.toFixed(2), "in 100 s · instincts alone: " + s.fish.instinct.food.toFixed(2));
   add("Fish eaten", one(s.fish.trained.eaten_fish), "per tank in 100 s · instincts: " + one(s.fish.instinct.eaten_fish));
   add("Fish starved", one(s.fish.trained.starved), "per tank in 100 s · instincts: " + one(s.fish.instinct.starved));
@@ -660,6 +664,69 @@ function drawChart() {
 }
 window.addEventListener("resize", drawChart);
 
+// ---------- training: what the last run achieved, and any run going on right now ----------
+
+let shownGenerations = -1;
+
+// `fish` is a training report: either the one built into this page's build, or a fresher
+// one fetched straight from a training run in progress.
+function showTraining(fish) {
+  if (!fish) { $("training-summary").textContent = "No training results yet."; return; }
+  const running = fish.state === "training" && Date.now() / 1000 - fish.updated < 90;
+  const live = $("training-live");
+  live.hidden = !running;
+  if (running) live.textContent = "Training on GitHub right now: generation " + fish.generations.toLocaleString() +
+    ", " + fish.seconds + " of " + fish.budget + " seconds into this run.";
+  if (fish.generations < shownGenerations) return; // older than what's already on the page
+  shownGenerations = fish.generations;
+
+  $("training-summary").textContent =
+    "The brains are trained on GitHub, and each run carries on from the last. A population of 100 brains lives in " +
+    "fast-forward tanks; each generation, the best quarter have children with small random changes. So far: " +
+    fish.generations.toLocaleString() + " generations" +
+    (fish.run_generations ? " (" + fish.run_generations.toLocaleString() + " of them in the latest run, in " + fish.seconds + " seconds)" : "") + ". " +
+    "The score rewards eating, hunting and schooling, and punishes starving, being eaten and bumping walls. " +
+    "It jumps about because every tank is a different random mix of animals." +
+    (fish.kept_instincts ? " In the latest final test the trained brains did not beat the hand-written starting instincts, so the animals are using the instincts for now (with small differences between them)." : "");
+
+  if (fish.instinct && fish.trained) {
+    const body = $("training");
+    body.replaceChildren();
+    const one = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
+    for (const [label, m] of [["Hand-written instincts", fish.instinct], [fish.kept_instincts ? "Brains in use (instincts)" : "Trained brains", fish.trained]]) {
+      const row = el("tr");
+      row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", one(m.eaten_fish), "num"),
+                 el("td", one(m.starved), "num"), el("td", m.score.toFixed(1), "num"));
+      body.append(row);
+    }
+    $("training-table").hidden = false;
+  }
+
+  if (fish.history && fish.history.length > 1) {
+    trainingPoints = fish.history;
+    drawChart();
+    const rows = $("history-table");
+    rows.replaceChildren();
+    const every = Math.max(1, Math.floor(trainingPoints.length / 15));
+    trainingPoints.forEach((p, i) => {
+      if (i % every && i !== trainingPoints.length - 1) return;
+      const row = el("tr");
+      row.append(el("td", String(p[0]), "num"), el("td", p[1].toFixed(1), "num"), el("td", p[2].toFixed(1), "num"));
+      rows.append(row);
+    });
+  }
+}
+
+// A training run publishes its progress every 15 seconds; look for it.
+async function pollTraining() {
+  try {
+    const r = await fetch("https://raw.githubusercontent.com/" + REPO + "/status/training.json?t=" + Date.now(), { cache: "no-store" });
+    if (r.ok) showTraining(await r.json());
+  } catch (e) { /* no progress report to be had right now */ }
+}
+pollTraining();
+setInterval(pollTraining, 15000);
+
 // ---------- what the last build published ----------
 
 async function loadPublished() {
@@ -675,41 +742,7 @@ async function loadPublished() {
     showTiles(s);
     window.fishMirrorInfo = s.fish_mirror || null; // where the board's tank lives in its memory
 
-    if (s.fish) {
-      $("training-summary").textContent =
-        "Every build trains the fish brains from scratch on GitHub. A population of 100 brains lives in fast-forward " +
-        "tanks; each generation, the best quarter have children with small random changes. This build ran " +
-        s.fish.generations.toLocaleString() + " generations in " + s.fish.seconds + " seconds. " +
-        "The score rewards eating, hunting and schooling, and punishes starving, being eaten and bumping walls. " +
-        "It jumps about because every tank is a different random mix of fish." +
-        (s.fish.kept_instincts ? " This time the trained brains did not beat the starting instincts in the final test, so the fish are using the instincts (with small differences between them)." : "");
-      const body = $("training");
-      body.replaceChildren();
-      const one = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
-      for (const [label, m] of [["Hand-written instincts", s.fish.instinct], [s.fish.kept_instincts ? "Brains in use (instincts)" : "Trained brains", s.fish.trained]]) {
-        const row = el("tr");
-        row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", one(m.eaten_fish), "num"),
-                   el("td", one(m.starved), "num"), el("td", m.score.toFixed(1), "num"));
-        body.append(row);
-      }
-      $("training-table").hidden = false;
-
-      if (s.fish.history && s.fish.history.length > 1) {
-        trainingPoints = s.fish.history;
-        drawChart();
-        const rows = $("history-table");
-        rows.replaceChildren();
-        const every = Math.max(1, Math.floor(trainingPoints.length / 15));
-        trainingPoints.forEach((p, i) => {
-          if (i % every && i !== trainingPoints.length - 1) return;
-          const row = el("tr");
-          row.append(el("td", String(p[0]), "num"), el("td", p[1].toFixed(1), "num"), el("td", p[2].toFixed(1), "num"));
-          rows.append(row);
-        });
-      }
-    } else {
-      $("training-summary").textContent = "No training results in the last build.";
-    }
+    showTraining(s.fish || null);
     return s;
   } catch (e) {
     $("training-summary").textContent = "Couldn't load training results.";

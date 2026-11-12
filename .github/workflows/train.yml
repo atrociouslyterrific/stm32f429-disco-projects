@@ -1,0 +1,90 @@
+name: Train fish brains
+
+# Trains the fish brains on GitHub's computers, carrying on from where the last run stopped.
+# While it runs, it publishes its progress every 15 seconds (to the "status" branch), which
+# the website shows live. When it finishes, the build runs again so the board program and
+# the website get the new brains.
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How many minutes to train for"
+        default: "4"
+  push:
+    branches: [main]
+    paths:  # the rules or the trainer changed: train under the new rules
+      - "Fish/fish_sim.c"
+      - "Fish/fish_sim.h"
+      - "tools/train_fish.c"
+      - ".github/workflows/train.yml"
+
+permissions:
+  contents: write  # to publish progress and keep the results
+
+concurrency:
+  group: train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the population trained so far
+        run: |
+          mkdir -p work
+          gh release download fish-brains -p population.bin -D work --clobber \
+            && echo "Carrying on from the last training run" \
+            || echo "No earlier training found: starting from the instincts"
+
+      - name: Build the trainer
+        run: gcc -O2 -Wall -fno-math-errno -IFish tools/train_fish.c Fish/fish_sim.c -lm -o work/train_fish
+
+      - name: Train, reporting progress as it goes
+        run: |
+          MINUTES="${{ github.event.inputs.minutes || '4' }}"
+          case "$MINUTES" in ''|*[!0-9]*) MINUTES=4 ;; esac
+          [ "$MINUTES" -gt 20 ] && MINUTES=20
+          [ "$MINUTES" -lt 1 ] && MINUTES=1
+
+          # A scratch copy of the repository whose only file is the progress report. It is
+          # pushed to the "status" branch as a single commit, replaced each time.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git worktree add --detach status-tree HEAD
+          (cd status-tree && git checkout -q --orphan status-report && git rm -rfq . )
+          FIRST=1
+          publish() {
+            [ -f "$1" ] || return 0
+            cp "$1" status-tree/training.json
+            (
+              cd status-tree
+              git add training.json
+              if [ "$FIRST" = 1 ]; then git commit -qm "Training progress"; else git commit -q --amend -m "Training progress"; fi
+              git push -qf origin HEAD:status
+            ) && FIRST=0 || echo "(couldn't publish progress this time)"
+          }
+
+          TRAIN_SECONDS=$((MINUTES * 60)) work/train_fish --brains work/fish_brains.h --results work/fish_training.json \
+            --population work/population.bin --progress work/progress.json &
+          TRAINER=$!
+          while kill -0 "$TRAINER" 2>/dev/null; do
+            sleep 15
+            publish work/progress.json
+          done
+          wait "$TRAINER"
+          publish work/fish_training.json
+          cat work/fish_training.json | head -c 600; echo
+
+      - name: Keep the results for the build and for the next training run
+        run: |
+          gh release view fish-brains >/dev/null 2>&1 || \
+            gh release create fish-brains --title "Fish brains" \
+              --notes "The fish brains trained on GitHub: the whole population (to carry on from next time), the ten brains the board uses, and the training summary. Replaced by every training run."
+          gh release upload fish-brains work/population.bin work/fish_brains.h work/fish_training.json --clobber

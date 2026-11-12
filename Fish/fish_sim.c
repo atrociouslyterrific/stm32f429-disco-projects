@@ -185,7 +185,7 @@ void tank_rebirth(Tank *t, int i) {
   f->bite_wait = 0;
   f->dead = 0;
   f->eaten_by = NOBODY;
-  for (int j = 0; j < N_FISH; j++) { t->like[i][j] = 0.0f; t->like[j][i] = 0.0f; }
+  for (int j = 0; j < N_FISH; j++) { t->like[i][j] = 0.0f; t->like[j][i] = 0.0f; t->said[i][j] = 0; t->said[j][i] = 0; }
 }
 
 static float nudge(Tank *t, float value, float amount, float lo, float hi) {
@@ -207,6 +207,8 @@ int tank_replace(Tank *t, int gone) {
   baby->eaten = baby->wall_hits = baby->bites = baby->kills = 0;
   t->like[gone][parent] = 0.5f;
   t->like[parent][gone] = 0.5f;
+  t->said[gone][parent] = 1; // (no need to announce that a baby and its parent get on)
+  t->said[parent][gone] = 1;
   note(t, EV_BORN, gone, parent);
   return parent;
 }
@@ -416,8 +418,11 @@ static void feel(Tank *t, int who, int about, float change) {
   float before = t->like[who][about];
   float after = clamp(before + change, -1.0f, 1.0f);
   t->like[who][about] = after;
-  if (before < 0.5f && after >= 0.5f) note(t, EV_LIKES, who, about);
-  if (before > -0.5f && after <= -0.5f) note(t, EV_HATES, who, about);
+  // Report a friendship or a feud once, and not again until the feeling has faded away.
+  uint8_t *said = &t->said[who][about];
+  if (after >= 0.5f && *said != 1) { *said = 1; note(t, EV_LIKES, who, about); }
+  else if (after <= -0.5f && *said != 2) { *said = 2; note(t, EV_HATES, who, about); }
+  else if (after > -0.2f && after < 0.2f) *said = 0;
 }
 
 // Fish i has eaten something worth `points` meal points. Enough of them and it evolves.
@@ -444,8 +449,8 @@ static void die(Tank *t, int i, int eaten_by) {
   f->eaten_by = (uint8_t)eaten_by;
   f->score -= 20.0f;
   // What's left of it feeds the plants: a whole body if it starved, scraps if it was eaten.
-  if (eaten_by == NOBODY) { t->total_starved++; t->nutrients += 0.25f; note(t, EV_STARVED, i, i); }
-  else { t->total_killed++; t->nutrients += 0.12f; note(t, EV_ATE, eaten_by, i); }
+  if (eaten_by == NOBODY) { t->total_starved++; t->nutrients += 0.15f; note(t, EV_STARVED, i, i); }
+  else { t->total_killed++; t->nutrients += 0.07f; note(t, EV_ATE, eaten_by, i); }
   if (t->nutrients > 1.0f) t->nutrients = 1.0f;
 }
 
@@ -565,7 +570,7 @@ static void tend_plants(Tank *t) {
     }
   }
 
-  t->nutrients *= 0.9999f; // the water slowly clears
+  t->nutrients *= 0.9996f; // the water slowly clears
   if (t->nutrients < 0.0f) t->nutrients = 0.0f;
 }
 

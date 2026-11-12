@@ -29,12 +29,14 @@ build/%.elf: FORCE
 	mkdir -p build
 	$(CC) $(CFLAGS) $(wildcard $*/*.c) $(COMMON) $(LDFLAGS) -Wl,-Map=build/$*.map -o $@
 
-# The fish brains are trained here, on the build machine, before Fish is compiled.
+# The fish brains normally come from the "Train fish brains" workflow, which the build
+# downloads into build/gen. If there are none (or they don't fit the current rules), a
+# short training run here makes some.
 build/Fish.elf: build/gen/fish_brains.h
-build/gen/fish_brains.h: FORCE
+build/gen/fish_brains.h:
 	mkdir -p build/gen
 	$(HOSTCC) -O2 -Wall -fno-math-errno -IFish tools/train_fish.c Fish/fish_sim.c -lm -o build/train_fish
-	build/train_fish $@ build/gen/fish_training.json
+	build/train_fish --brains $@ --results build/gen/fish_training.json
 
 # The same fish rules and trained brains, built for web browsers (for the status website).
 web: build/fish.wasm

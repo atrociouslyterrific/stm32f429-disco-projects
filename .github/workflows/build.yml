@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_run:  # rebuild with the new brains whenever a training run finishes
+    workflows: ["Train fish brains"]
+    types: [completed]
 
 permissions:
   contents: write  # lets the build publish the "latest" download
@@ -15,6 +18,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04-arm  # same runner pool as the Pip and Bloop builds
     timeout-minutes: 15
     steps:
@@ -29,6 +33,25 @@ jobs:
         run: |
           gcc -Wall -Icommon tools/check_font.c common/font.c -o check_font
           ./check_font
+
+      - name: Get the trained fish brains
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The "Train fish brains" workflow keeps its results in a release. Use them if they
+          # fit the current rules; otherwise the next step trains some quickly instead.
+          mkdir -p build/gen
+          if gh release download fish-brains -p fish_brains.h -p fish_training.json -D build/gen --clobber; then
+            if gcc -fsyntax-only -IFish -Ibuild/gen tools/check_brains.c; then
+              echo "Using the brains from the last training run"
+            else
+              echo "Those brains don't fit the current rules: training fresh ones in this build"
+              rm -f build/gen/fish_brains.h build/gen/fish_training.json
+            fi
+          else
+            echo "No trained brains yet: training some in this build"
+          fi
 
       - name: Compile every program
         run: make
@@ -59,7 +82,7 @@ jobs:
         run: |
           NOTES="Build ${{ github.run_number }} · $(date -u +%Y-%m-%dT%H:%M:%SZ)
           Put it on the board from Chrome: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-          if gh release view latest >/dev/null 2>&1; then
+          if gh release view latest >/dev/null 2>&1; then  # (runs after a training run too, on main)
             gh release edit latest --notes "$NOTES"
           else
             gh release create latest --title "Latest program files" --notes "$NOTES"
