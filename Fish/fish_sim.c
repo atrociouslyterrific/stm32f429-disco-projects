@@ -13,7 +13,9 @@
 #define PREY_RATIO  0.8f // a fish can only bite one smaller than this fraction of itself
 #define BITE_HUNGER 0.6f // ...and only when its energy is below this (full fish don't hunt)
 #define FRIEND      0.3f // ...and never a fish it likes this much
-#define BITE_DAMAGE 0.4f
+#define BITE_DAMAGE 0.5f
+#define LUNGE       1.4f  // a hunting fish with prey in sight swims this much faster...
+#define LUNGE_COST  0.0005f // ...and burns this much extra energy per tick
 #define BITE_REST   45   // ticks between bites
 #define NEWBORN_SAFE 150 // ticks a newborn can't be bitten
 
@@ -181,7 +183,7 @@ static int edible(const Tank *t, int hunter, int prey) {
 
 // Work out everything fish i can sense right now. Also reports two things used for
 // scoring: how well it is swimming with the group, and whether it is being crowded.
-static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *crowded) {
+static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *crowded, int *sees_prey) {
   const Fish *me = &t->fish[i];
   const float ax = me->dx, ay = me->dy; // "ahead"
   const float rx = -ay, ry = ax;        // "to my right"
@@ -251,6 +253,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   in[S_FRIEND_RIGHT] = friend_x * rx + friend_y * ry;
   in[S_ENEMY_AHEAD] = enemy_x * ax + enemy_y * ay;
   in[S_ENEMY_RIGHT] = enemy_x * rx + enemy_y * ry;
+  *sees_prey = prey;
   if (prey) {
     float d = root(prey_d2) + 0.001f;
     float strength = (1.0f - 0.7f * d / SIGHT) / d;
@@ -347,12 +350,12 @@ static void try_bite(Tank *t, int i) {
 
 void tank_step(Tank *t) {
   float turn[N_FISH], push[N_FISH], bite[N_FISH], with_group[N_FISH];
-  int crowded[N_FISH];
+  int crowded[N_FISH], sees_prey[N_FISH];
 
   // Everyone looks and decides first, then everyone moves, so no fish gets a head start.
   for (int i = 0; i < N_FISH; i++) {
     float in[N_IN], out[N_OUT];
-    sense(t, i, in, &with_group[i], &crowded[i]);
+    sense(t, i, in, &with_group[i], &crowded[i], &sees_prey[i]);
     think(&t->fish[i].brain, in, out);
     turn[i] = out[D_TURN];
     push[i] = out[D_PUSH];
@@ -370,8 +373,11 @@ void tank_step(Tank *t) {
     f->dy = ny * inv;
 
     // Swim: ease towards the speed the brain asked for. Good swimmers are faster;
-    // big fish and hurt fish are slower.
-    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->pace * (1.2f - 0.2f * f->size) * (0.7f + 0.3f * f->health);
+    // big fish and hurt fish are a little slower. A hungry fish that has decided to
+    // bite and can see prey lunges, which is what lets a big fish catch a small one.
+    int hunting = bite[i] > 0.0f && f->energy < BITE_HUNGER && sees_prey[i];
+    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->pace * (1.1f - 0.1f * f->size) * (0.7f + 0.3f * f->health);
+    if (hunting) wanted *= LUNGE;
     f->speed += (wanted - f->speed) * 0.1f;
     f->x += f->dx * f->speed;
     f->y += f->dy * f->speed;
@@ -384,7 +390,7 @@ void tank_step(Tank *t) {
     if (f->y > TANK_H - EDGE) { f->y = TANK_H - EDGE; if (f->dy > 0.0f) f->dy = -f->dy; hit = 1; }
 
     // Hunger: bigger fish burn more.
-    f->energy -= DRAIN * (0.5f + 0.5f * f->size);
+    f->energy -= DRAIN * (0.5f + 0.5f * f->size) + (hunting ? LUNGE_COST : 0.0f);
     if (f->energy < 0.0f) f->energy = 0.0f;
 
     // Food pellets

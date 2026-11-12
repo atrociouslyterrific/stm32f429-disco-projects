@@ -73,10 +73,10 @@ static void breed(void) {
 }
 
 // Fair comparison: the same 8 starting tanks, 100 seconds of tank time each.
-typedef struct { double food, walls, score, eaten_fish, starved; } Result;
+typedef struct { double food, walls, score, eaten_fish, starved, bites; } Result;
 
 static Result measure(const char *label, const Brain brains[N_FISH]) {
-  double eaten = 0, walls = 0, score = 0, killed = 0, starved = 0;
+  double eaten = 0, walls = 0, score = 0, killed = 0, starved = 0, bites = 0;
   const int tanks = 8, steps = 3000;
   for (int s = 0; s < tanks; s++) {
     tank_init(&tank, 1000u + (uint32_t)s * 7919u);
@@ -86,14 +86,15 @@ static Result measure(const char *label, const Brain brains[N_FISH]) {
       eaten += tank.fish[k].eaten;
       walls += tank.fish[k].wall_hits;
       score += tank.fish[k].score;
+      bites += tank.fish[k].bites; // (bites by fish that later died aren't counted)
     }
     killed += tank.total_killed;
     starved += tank.total_starved;
   }
   double n = (double)tanks * N_FISH;
-  printf("%-16s per fish in 100 s: food %.2f, wall bumps %.1f, score %.1f | per tank: %.2f fish eaten, %.2f starved\n",
-         label, eaten / n, walls / n, score / n, killed / tanks, starved / tanks);
-  Result result = {eaten / n, walls / n, score / n, killed / tanks, starved / tanks};
+  printf("%-16s per fish in 100 s: food %.2f, wall bumps %.1f, score %.1f | per tank: %.2f bites, %.2f fish eaten, %.2f starved\n",
+         label, eaten / n, walls / n, score / n, bites / tanks, killed / tanks, starved / tanks);
+  Result result = {eaten / n, walls / n, score / n, killed / tanks, starved / tanks, bites / tanks};
   return result;
 }
 
