@@ -178,7 +178,7 @@ int tank_add_food(Tank *tank, float x, float y);  // at a chosen spot
 // Bring fish i back as a newborn Fry somewhere random, forgetting its relationships.
 // Its brain and genes are left alone; change them afterwards if it should be a new fish.
 void tank_rebirth(Tank *tank, int i);
-// Animal `gone` has died: the animal doing best has a baby in its place with a partner
+// Animal `gone` has died: one of the animals doing best has a baby in its place with a partner
 // (its best friend, or failing that the next best animal). The baby's genome is a mix of
 // both parents' with a few mutations. Parents and baby start out as friends.
 // Returns the first parent (the mum).

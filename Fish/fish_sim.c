@@ -24,7 +24,7 @@ static const float STAGE_SIZE[N_STAGES]  = {1.0f, 1.45f, 1.95f, 2.5f, 3.1f}; // 
 // ...but only when hungry enough (full fish don't hunt): see hunt_hunger(), set by its genes
 #define FRIEND      0.3f // nobody attacks a fish it likes this much
 // It fights an enemy whatever its size once its dislike passes a point set by its
-// aggression trait: from -0.55 (peaceful) to -0.1 (aggressive). See fight_point().
+// aggression trait: from -0.65 (peaceful) to -0.35 (aggressive). See fight_point().
 #define BITE_DAMAGE 0.35f
 #define BITE_REST   60   // ticks between bites
 #define NEWBORN_SAFE 300 // ticks a newborn can't be attacked
@@ -168,7 +168,7 @@ void fish_random_genes(Fish *f, uint32_t *rng) {
   f->g.curiosity = rng_unit(rng);
 }
 
-static float fight_point(const Fish *f) { return -0.55f + 0.45f * f->g.aggression; }
+static float fight_point(const Fish *f) { return -0.65f + 0.3f * f->g.aggression; }
 
 // How hungry it has to be before it hunts: bold animals hunt sooner.
 static float hunt_hunger(const Fish *f) { return 0.4f + 0.3f * f->g.boldness; }
@@ -247,10 +247,21 @@ static void keep_visible(Genome *g) {
 }
 
 int tank_replace(Tank *t, int gone) {
-  // The mum: whoever is doing best.
-  int mum_i = gone == 0 ? 1 : 0;
-  for (int j = 0; j < N_FISH; j++)
-    if (j != gone && !t->fish[j].dead && t->fish[j].score > t->fish[mum_i].score) mum_i = j;
+  // The mum: one of the three animals doing best, picked by lot (always the very best
+  // would let one family take over the whole tank within minutes).
+  int top[3] = {-1, -1, -1};
+  for (int j = 0; j < N_FISH; j++) {
+    if (j == gone || t->fish[j].dead) continue;
+    for (int k = 0; k < 3; k++) {
+      if (top[k] < 0 || t->fish[j].score > t->fish[top[k]].score) {
+        for (int m = 2; m > k; m--) top[m] = top[m - 1];
+        top[k] = j;
+        break;
+      }
+    }
+  }
+  int choices = top[2] >= 0 ? 3 : top[1] >= 0 ? 2 : 1;
+  int mum_i = top[0] < 0 ? (gone == 0 ? 1 : 0) : top[rng_next(&t->rng) % (uint32_t)choices];
   // The dad: the mum's best friend if she has a good one, otherwise the next best animal.
   int dad_i = -1;
   float fondest = 0.2f;
