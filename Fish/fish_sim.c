@@ -21,17 +21,17 @@ static const float STAGE_SIZE[N_STAGES]  = {0.9f, 1.25f, 1.6f, 2.0f, 2.4f};  // 
 
 // Hunting and fighting
 #define PREY_RATIO  0.8f // a fish can hunt one whose power is below this fraction of its own
-#define BITE_HUNGER 0.6f // ...but only when its energy is below this (full fish don't hunt)
+#define BITE_HUNGER 0.5f // ...but only when its energy is below this (full fish don't hunt)
 #define FRIEND      0.3f // nobody attacks a fish it likes this much
 #define ENEMY      -0.3f // a fish it dislikes this much, it will fight whatever its size
-#define BITE_DAMAGE 0.5f
-#define BITE_REST   45   // ticks between bites
-#define NEWBORN_SAFE 150 // ticks a newborn can't be attacked
+#define BITE_DAMAGE 0.3f
+#define BITE_REST   60   // ticks between bites
+#define NEWBORN_SAFE 300 // ticks a newborn can't be attacked
 #define LUNGE       1.4f  // a hunting fish with prey in sight swims this much faster...
 #define LUNGE_COST  0.0005f // ...and burns this much extra energy per tick
 
 // Plants and nutrients
-#define PLANT_GROWTH 0.00012f // growth per tick, multiplied by (0.4 + nutrients)
+#define PLANT_GROWTH 0.00022f // growth per tick, multiplied by (0.4 + nutrients)
 #define PLANT_SEED   0.06f    // height a plant gives up to release one pellet of food
 #define GRAZE        0.004f   // height nibbled (and energy gained) per tick by a small fish
 
@@ -447,7 +447,7 @@ static void try_bite(Tank *t, int i) {
   if (target < 0) return;
 
   Fish *other = &t->fish[target];
-  float edge = clamp(my_power / fish_power(other), 0.4f, 2.0f); // how much stronger I am
+  float edge = clamp(my_power / fish_power(other), 0.5f, 1.6f); // how much stronger I am
   me->bites++;
   me->bite_wait = BITE_REST;
 
@@ -618,8 +618,8 @@ void tank_step(Tank *t) {
     if (f->energy <= 0.0f) {
       f->health -= 0.002f;
       if (f->health <= 0.0f) die(t, i, NOBODY);
-    } else if (f->energy > 0.5f && f->health < 1.0f) {
-      f->health = clamp(f->health + 0.0005f, 0.0f, 1.0f);
+    } else if (f->energy > 0.4f && f->health < 1.0f) {
+      f->health = clamp(f->health + 0.001f, 0.0f, 1.0f);
     }
   }
 
