@@ -19,4 +19,4 @@ sends it to the board.
 The screen stays blank while Blink runs: this program only uses the lights.
 
 The page is in `site/`. It uses a copy of [webstlink](https://github.com/devanlai/webstlink)
-with one change so that boards with old factory ST-Link firmware (such as V2J17) still work.
+with two small fixes: boards with old factory ST-Link firmware (such as V2J17) are accepted, and erasing works on F4 chips.

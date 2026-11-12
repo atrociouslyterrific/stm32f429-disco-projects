@@ -179,7 +179,9 @@ class Flash {
         flash_cr_value |= (this._params["FLASH_CR_PSIZE"] | (sector << FLASH_CR_SNB_BITINDEX));
         await this._stlink.set_debugreg32(FLASH_CR_REG, flash_cr_value);
         await this._stlink.set_debugreg32(FLASH_CR_REG, (flash_cr_value | FLASH_CR_STRT_BIT));
-        await this.wait_busy(this._params["max_erase_time"][erase_size]);
+        // Changed from upstream webstlink: sector sizes are given in bytes but the time table is
+        // keyed in KB, so the lookup gave no time at all and every erase "timed out" instantly.
+        await this.wait_busy(this._params["max_erase_time"][erase_size / 1024]);
     }
 
     async erase_sectors(flash_start, erase_sizes, addr, size) {
