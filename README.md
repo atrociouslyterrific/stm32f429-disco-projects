@@ -15,7 +15,8 @@ sends it to the board.
 2. Download `Blink.bin` from the [latest release](../../releases/tag/latest).
 3. Open <https://devanlai.github.io/webstlink/demo/> in Chrome.
 4. Click **Connect** and pick **STM32 STLink**. If it asks for the MCU variant, pick the STM32F429 with 2 MB of flash (ZI).
-5. In the flash section, type the address `0x08000000`, choose `Blink.bin`, and click **Flash**.
-6. Press the black reset button on the board if the lights don't start.
+5. Click **Halt**. The Flash button stays grey until the chip is paused.
+6. In the flash section, check the address is `0x08000000`, choose `Blink.bin`, and click **Flash**.
+7. Click **Reset** on the page (or press the black reset button on the board) to start the program.
 
 The screen stays blank while Blink runs: this program only uses the lights.
