@@ -200,9 +200,6 @@ void tank_rebirth(Tank *t, int i) {
   for (int j = 0; j < N_FISH; j++) { t->like[i][j] = 0.0f; t->like[j][i] = 0.0f; t->said[i][j] = 0; t->said[j][i] = 0; }
 }
 
-static float nudge(Tank *t, float value, float amount, float lo, float hi) {
-  return clamp(value + rng_normal(&t->rng) * amount, lo, hi);
-}
 
 // One gene from one of two parents, sometimes changed a little on the way.
 static float inherit(Tank *t, float from_mum, float from_dad, float lo, float hi) {
