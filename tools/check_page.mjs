@@ -22,7 +22,8 @@ page.on("console", (m) => {
 });
 
 await page.goto(url, { waitUntil: "load" });
-await page.waitForTimeout(9000); // let the tank run for a while
+// Let the tank run for a while, with food dropped now and then so there are babies.
+for (let n = 0; n < 6; n++) { await page.waitForTimeout(3000); await page.click("#feed").catch(() => {}); await page.click("#feed").catch(() => {}); }
 
 const facts = await page.evaluate(() => {
   const text = (id) => (document.getElementById(id) || {}).textContent || "";
@@ -51,6 +52,8 @@ const facts = await page.evaluate(() => {
     evolutionSummary: text("evo-summary"),
     genePoolRows: document.querySelectorAll("#gene-pool .fam").length,
     newerBanner: !document.getElementById("newer").hidden,
+    treeNodes: document.querySelectorAll("#tree .ft-node").length,
+    treeSummary: text("tree-summary").slice(0, 90),
   };
 });
 await page.screenshot({ path: shot, fullPage: true });
@@ -68,6 +71,7 @@ if (facts.flashButtons !== 3) problems.push("expected 3 Flash buttons");
 if (!/Right now:/.test(facts.evolutionSummary)) problems.push("the evolution diagram didn't fill in");
 if (facts.genePoolRows < 9) problems.push("the gene pool has " + facts.genePoolRows + " rows");
 if (facts.newerBanner) problems.push("the page thinks it is out of date");
+if (facts.treeNodes < 10) problems.push("the family tree has " + facts.treeNodes + " animals in it");
 for (const p of problems) console.log("PROBLEM: " + p);
 if (problems.length) process.exit(1);
 console.log("the page works in a real browser");

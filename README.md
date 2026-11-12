@@ -49,6 +49,8 @@ code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you 
 - **Genes and family**: any animal's genome (body genes against its parents', and its
   brain genes as a strip), and its family tree.
 - **Families**: a small chart per founder's family showing how many are alive over time.
+- **Family tree**: every animal that has lived in the tank, founders at the top and one row
+  per generation, with lines to both parents. Hover to light up an animal's whole line.
 - **Inside a brain**: one animal's neural network, drawn live as it thinks.
 - **Training progress**: the score per generation across every training run, updating
   live while a run is going.

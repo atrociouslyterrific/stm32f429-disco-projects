@@ -113,6 +113,19 @@
   .node.gone { opacity: .6; border-style: dashed; }
   .node.unknown { opacity: .45; }
   .fam-wrap { position: relative; }
+  .ft-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 0; }
+  .ft { display: block; }
+  .ft text { font: 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: var(--muted); }
+  .ft .ft-row { font-weight: 600; }
+  .ft-line { fill: none; stroke: var(--muted); stroke-width: 1.2; opacity: .45; }
+  .ft-line.dad { stroke-dasharray: 3 3; }
+  .ft-node { cursor: pointer; }
+  .ft-node circle { opacity: .35; stroke: var(--card); stroke-width: 2; }
+  .ft-node.alive circle { opacity: 1; stroke: var(--text); stroke-width: 1.5; }
+  .ft-node.alive text { fill: var(--text); font-weight: 600; }
+  .ft.hl .ft-node:not(.on) { opacity: .15; }
+  .ft.hl .ft-line:not(.on) { opacity: .06; }
+  .ft.hl .ft-line.on { opacity: 1; stroke: var(--series-1); stroke-width: 2; }
   .fam { display: grid; grid-template-columns: 150px minmax(0, 1fr) 190px; gap: 12px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); }
   .fam:last-child { border-bottom: 0; }
   .fam-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: .9rem; min-width: 0; }
@@ -182,7 +195,7 @@
     watch the fish, and follow their training.</p>
   <nav class="jump" aria-label="Sections">
     <a href="#flash">Flash</a><a href="#tank-card">Tank</a><a href="#evolution">Evolution</a><a href="#genes">Genes</a>
-    <a href="#families-card">Families</a><a href="#brain-card">Brain</a><a href="#training-card">Training</a>
+    <a href="#families-card">Families</a><a href="#tree-card">Family tree</a><a href="#brain-card">Brain</a><a href="#training-card">Training</a>
   </nav>
   <p id="newer" class="pill busy" style="white-space:normal;border-radius:10px;padding:8px 14px;margin:0 0 16px" hidden>
     A newer version of this page is out (build <span id="newer-build"></span>). <a href="#" id="newer-reload">Reload to get it</a>.</p>
@@ -307,7 +320,7 @@
     <p class="muted small" style="margin:6px 0 0">Its brain is part of its genome too: one stripe per connection strength
       (blue positive, orange negative, stronger = darker). A baby gets each hidden cell, with all its connections, whole from
       one parent, like a chromosome.</p>
-    <h3>Family tree</h3>
+    <h3>Its relatives</h3>
     <div id="family-tree"></div>
   </div>
 
@@ -327,6 +340,18 @@
         </table>
       </div>
     </details>
+  </div>
+
+  <div class="card" id="tree-card">
+    <h2>Family tree</h2>
+    <p class="lead">Every animal that has lived in this tank: the ten founders on top, then each generation of babies below,
+      with a line up to each parent (solid to the mum, dashed to the dad). Faded animals have died.</p>
+    <div class="tank-bar" style="justify-content:flex-start;margin-top:0">
+      <label for="tree-family">Show:</label>
+      <select id="tree-family"></select>
+    </div>
+    <p id="tree-summary" class="small" style="margin:0 0 8px"></p>
+    <div class="ft-wrap"><div id="tree"></div><div class="tip" id="tree-tip"></div></div>
   </div>
 
   <div class="card" id="brain-card">
@@ -1266,6 +1291,7 @@ async function startTank() {
     drawFamilies();
     drawEvolution(s);
     drawGenePool();
+    drawTree();
   }
 
   // ----- genetics and families -----
@@ -1507,6 +1533,115 @@ async function startTank() {
       row.append(el("td", familyName(c.f)), el("td", String(c.alive), "num"), el("td", String(c.born), "num"), el("td", String(c.gens + 1), "num"));
       table.append(row);
     }
+  }
+
+  // ----- the whole family tree -----
+  // Every animal seen in this tank: founders on the top row, then one row per generation,
+  // with a line from each baby up to its mum (solid) and its dad (dashed).
+  const treeBox = $("tree"), treePick = $("tree-family");
+  treePick.append(el("option", "Everyone"));
+  for (let f = 0; f < N; f++) treePick.append(el("option", "Family " + (f + 1)));
+  treePick.addEventListener("change", () => { treeShown = ""; drawTree(); });
+  let treeShown = "", treeHighlight = 0;
+
+  function drawTree() {
+    for (let f = 0; f < N; f++) if (treePick.options[f + 1].textContent !== familyName(f)) treePick.options[f + 1].textContent = familyName(f);
+    const only = treePick.selectedIndex - 1; // -1 = everyone
+    let animals = [...registry.values()].filter(r => only < 0 || r.family === only);
+    let note = "";
+    if (animals.length > 150) { // too many to draw clearly: keep the living and their ancestors
+      const keep = new Set();
+      const climb = (id) => { const r = registry.get(id); if (!r || keep.has(id)) return; keep.add(id); climb(r.mum); climb(r.dad); };
+      animals.filter(r => r.died === null).forEach(r => climb(r.id));
+      animals = animals.filter(r => keep.has(r.id));
+      note = "Too many to show everyone: showing the animals alive now and all their ancestors. ";
+    }
+    const dead = animals.filter(r => r.died !== null).length;
+    const signature = only + "|" + animals.length + "|" + dead + "|" + animals.map(r => r.kind).join("");
+    if (signature === treeShown) return;
+    treeShown = signature;
+
+    // Rows by generation. Founders keep family order; everyone else sits under their parents.
+    const rows = [];
+    for (const r of animals) (rows[r.gen] = rows[r.gen] || []).push(r);
+    const W = Math.max(treeBox.parentElement.clientWidth || 600, 90 + Math.max(1, ...rows.map(row => row ? row.length : 0)) * 54);
+    const ROW = 66, top = 22, H = top + rows.length * ROW;
+    const pos = new Map();
+    rows.forEach((row, g) => {
+      if (!row) return;
+      const placed = (id) => pos.has(id) ? pos.get(id)[0] : null;
+      const key = (r) => {
+        const xs = [placed(r.mum), placed(r.dad)].filter(x => x !== null);
+        return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : r.family * 1e4 + r.id;
+      };
+      row.sort((a, b) => g === 0 ? a.family - b.family : key(a) - key(b) || a.id - b.id);
+      row.forEach((r, n) => pos.set(r.id, [80 + (n + 0.5) * (W - 90) / row.length, top + g * ROW + 10]));
+    });
+
+    const root = svg("svg", { class: "ft", width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": "Family tree of " + animals.length + " animals over " + rows.length + " generations" });
+    rows.forEach((row, g) => {
+      if (!row) return;
+      const label = svg("text", { x: 4, y: top + g * ROW + 14, class: "ft-row" });
+      label.textContent = g === 0 ? "Founders" : "Generation " + g;
+      root.append(label);
+    });
+    const lines = svg("g", {}), nodes = svg("g", {});
+    root.append(lines, nodes);
+    for (const r of animals) {
+      const [x, y] = pos.get(r.id);
+      for (const [parent, dashed] of [[r.mum, false], [r.dad, true]]) {
+        if (!pos.has(parent)) continue;
+        const [px, py] = pos.get(parent);
+        const path = svg("path", { d: `M${px} ${py + 10} C${px} ${(py + y) / 2}, ${x} ${(py + y) / 2}, ${x} ${y - 10}`,
+          class: "ft-line" + (dashed ? " dad" : ""), "data-a": parent, "data-b": r.id });
+        lines.append(path);
+      }
+      const g = svg("g", { class: "ft-node" + (r.died === null ? " alive" : ""), "data-id": r.id, transform: `translate(${x} ${y})` });
+      const dot = svg("circle", { r: 9, fill: rgb(r.tint, 1) });
+      const name = svg("text", { y: 23, "text-anchor": "middle" });
+      name.textContent = title(r.name);
+      g.append(dot, name);
+      g.addEventListener("pointerenter", (ev) => { highlight(root, r.id); treeTip(ev, r); });
+      g.addEventListener("pointerleave", () => { highlight(root, 0); $("tree-tip").style.display = "none"; });
+      g.addEventListener("click", () => { // show it in the genes section, if it's alive
+        if (r.died === null && r.slot >= 0) { genePick.selectedIndex = brainPick.selectedIndex = r.slot; shownGenome = ""; }
+      });
+      nodes.append(g);
+    }
+    treeBox.replaceChildren(root);
+    if (treeHighlight) highlight(root, treeHighlight);
+    const living = animals.length - dead;
+    $("tree-summary").textContent = note + animals.length + " animals over " + rows.length + (rows.length === 1 ? " generation" : " generations") +
+      ", " + living + " alive now. Hover over one to light up its ancestors and descendants; click a living one to see its genes.";
+  }
+
+  // Light up an animal's whole line: everyone it descends from, and everyone descended from it.
+  function highlight(root, id) {
+    treeHighlight = id;
+    root.classList.toggle("hl", !!id);
+    if (!id) return;
+    const on = new Set([id]);
+    const up = (x) => { const r = registry.get(x); if (!r) return; for (const p of [r.mum, r.dad]) if (p && !on.has(p)) { on.add(p); up(p); } };
+    up(id);
+    const down = (x) => { for (const r of registry.values()) if ((r.mum === x || r.dad === x) && !on.has(r.id)) { on.add(r.id); down(r.id); } };
+    down(id);
+    for (const node of root.querySelectorAll(".ft-node")) node.classList.toggle("on", on.has(+node.dataset.id));
+    for (const line of root.querySelectorAll(".ft-line")) line.classList.toggle("on", on.has(+line.dataset.a) && on.has(+line.dataset.b));
+  }
+
+  function treeTip(ev, r) {
+    const tip = $("tree-tip"), host = treeBox.parentElement.getBoundingClientRect();
+    const mum = registry.get(r.mum), dad = registry.get(r.dad);
+    const kids = [...registry.values()].filter(k => k.mum === r.id || k.dad === r.id).length;
+    tip.replaceChildren(el("b", r.name + " the " + SPECIES[r.kind]),
+      el("div", familyName(r.family) + " · " + (r.gen ? "generation " + r.gen : "founder")),
+      el("div", r.gen ? "Parents: " + (mum ? mum.name : "?") + " and " + (dad ? dad.name : "?") : "No parents: it started the family"),
+      el("div", (kids ? kids + (kids === 1 ? " child" : " children") : "No children yet") + " · " + (r.died === null ? "alive" : "died")));
+    tip.style.display = "block";
+    const x = ev.clientX - host.left + treeBox.parentElement.scrollLeft;
+    tip.style.left = Math.max(0, Math.min(treeBox.scrollWidth - tip.offsetWidth, x + 14)) + "px";
+    tip.style.top = (ev.clientY - host.top + 14) + "px";
   }
 
   function familyTip(ev, f, chart) {
