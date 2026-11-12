@@ -292,36 +292,17 @@ static void show_number(int x, uint32_t n) {
 
 // ---------- life and death ----------
 
-static float nudge(float value, float amount, float lo, float hi) {
-  value += rng_normal(&tank.rng) * amount;
-  return value < lo ? lo : value > hi ? hi : value;
-}
-
 // Fish `gone` has died (starved or eaten). The fish doing best has a baby in its place.
 static void replace_fish(int gone) {
-  int parent = gone == 0 ? 1 : 0;
-  for (int j = 0; j < N_FISH; j++)
-    if (j != gone && !tank.fish[j].dead && tank.fish[j].score > tank.fish[parent].score) parent = j;
-  const Fish *mum = &tank.fish[parent];
+  int parent = tank_replace(&tank, gone);
 
-  tank_rebirth(&tank, gone);
-  Fish *baby = &tank.fish[gone];
-  brain_child(&baby->brain, &mum->brain, &tank.rng, 0.15f);
-  baby->max_size = nudge(mum->max_size, 0.1f, 0.9f, 1.7f);
-  baby->pace = nudge(mum->pace, 0.05f, 0.85f, 1.25f);
-  baby->slim = nudge(mum->slim, 0.05f, 0.8f, 1.25f);
-  baby->score = 0.0f;
-  baby->eaten = baby->wall_hits = baby->bites = baby->kills = 0;
-
-  // The baby looks like its parent, in a slightly different shade, and they start as friends.
+  // The baby looks like its parent, in a slightly different shade.
   for (int c = 0; c < 3; c++) {
     int shade = (int)look[parent].tint[c] + (int)(rng_next(&tank.rng) % 61u) - 30;
     look[gone].tint[c] = (uint8_t)(shade < 70 ? 70 : shade > 255 ? 255 : shade);
   }
   look[gone].marking = (rng_next(&tank.rng) % 8u) ? look[parent].marking : (uint8_t)(rng_next(&tank.rng) % 3u);
   give_name(gone);
-  tank.like[gone][parent] = 0.5f;
-  tank.like[parent][gone] = 0.5f;
 
   art[gone].last_health = 1.0f;
   art[gone].flash = 0;

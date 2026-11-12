@@ -83,6 +83,9 @@ int tank_add_food(Tank *tank, float x, float y);  // at a chosen spot
 // Bring fish i back as a small newborn somewhere random, forgetting its relationships.
 // Its brain and genes are left alone; change them afterwards if it should be a new fish.
 void tank_rebirth(Tank *tank, int i);
+// Fish `gone` has died: the fish doing best has a baby in its place, with a slightly
+// changed copy of its brain and genes. They start out as friends. Returns the parent.
+int tank_replace(Tank *tank, int gone);
 void tank_step(Tank *tank); // move time forward one tick
 
 #endif

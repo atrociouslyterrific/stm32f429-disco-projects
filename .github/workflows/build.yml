@@ -23,7 +23,7 @@ jobs:
       - name: Install the ARM compiler
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi make gcc libc6-dev
+          sudo apt-get install -y -q --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi make gcc libc6-dev clang lld
 
       - name: Check the font pictures (prints a sample)
         run: |
@@ -32,6 +32,9 @@ jobs:
 
       - name: Compile every program
         run: make
+
+      - name: Build the fish rules for web browsers (for the status page's live tank)
+        run: make web && ls -l build/fish.wasm
 
       - name: Check each program starts the way the chip expects
         run: |
@@ -67,7 +70,7 @@ jobs:
         run: |
           mkdir -p _site
           cp -R site/. _site/
-          cp build/*.bin _site/
+          cp build/*.bin build/fish.wasm _site/
 
           # Facts about this build, for the status page (status.html).
           COMMIT_MESSAGE="$(git log -1 --pretty=%s)" python3 - <<'PY'

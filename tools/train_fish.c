@@ -27,6 +27,7 @@ static float fit[POP];
 static int order[POP], ranked[POP];
 static Tank tank;
 static uint32_t rng = 20261112u;
+static float history_best[MAX_GENERATIONS], history_average[MAX_GENERATIONS];
 
 // One tick of a training tank. A fish that dies comes straight back as a newborn with
 // the same brain (it has already lost points for dying), so the tank stays full.
@@ -115,12 +116,14 @@ int main(int argc, char **argv) {
     evaluate();
     for (int p = 0; p < POP; p++) ranked[p] = p;
     qsort(ranked, POP, sizeof ranked[0], by_fitness);
+    float mean = 0;
+    for (int p = 0; p < POP; p++) mean += fit[p];
+    mean /= POP;
+    history_best[generation] = fit[ranked[0]] / ROUNDS; // per try, so it compares with the table below
+    history_average[generation] = mean / ROUNDS;
     generation++;
-    if (generation == 1 || generation % 20 == 0) {
-      float mean = 0;
-      for (int p = 0; p < POP; p++) mean += fit[p];
-      printf("generation %4d: best score %.1f, average %.1f\n", generation, (double)fit[ranked[0]], (double)(mean / POP));
-    }
+    if (generation == 1 || generation % 20 == 0)
+      printf("generation %4d: best score %.1f, average %.1f\n", generation, (double)fit[ranked[0]], (double)mean);
     if (generation >= MAX_GENERATIONS || time(NULL) - start >= budget) break;
     breed();
   }
@@ -160,6 +163,16 @@ int main(int argc, char **argv) {
     FILE *js = fopen(argv[2], "w");
     if (!js) { perror(argv[2]); return 1; }
     fprintf(js, "{\"generations\": %d, \"seconds\": %ld,\n", generation, seconds);
+    // Progress, thinned to about 150 points. Each point is the average over a small
+    // window of generations, because one generation on its own is very jumpy.
+    int window = generation / 150 + 1;
+    fprintf(js, " \"steps_per_try\": %d, \"history\": [", STEPS);
+    for (int g = 0, first = 1; g + window <= generation; g += window, first = 0) {
+      double best = 0, average = 0;
+      for (int k = 0; k < window; k++) { best += history_best[g + k]; average += history_average[g + k]; }
+      fprintf(js, "%s[%d, %.2f, %.2f]", first ? "" : ", ", g + window, best / window, average / window);
+    }
+    fprintf(js, "],\n");
     const Result *rs[2] = {&r_before, &r_after};
     const char *names[2] = {"instinct", "trained"};
     for (int k = 0; k < 2; k++)

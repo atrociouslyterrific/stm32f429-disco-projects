@@ -132,6 +132,29 @@ void tank_rebirth(Tank *t, int i) {
   for (int j = 0; j < N_FISH; j++) { t->like[i][j] = 0.0f; t->like[j][i] = 0.0f; }
 }
 
+static float nudge(Tank *t, float value, float amount, float lo, float hi) {
+  return clamp(value + rng_normal(&t->rng) * amount, lo, hi);
+}
+
+int tank_replace(Tank *t, int gone) {
+  int parent = gone == 0 ? 1 : 0;
+  for (int j = 0; j < N_FISH; j++)
+    if (j != gone && !t->fish[j].dead && t->fish[j].score > t->fish[parent].score) parent = j;
+  const Fish *mum = &t->fish[parent];
+
+  tank_rebirth(t, gone);
+  Fish *baby = &t->fish[gone];
+  brain_child(&baby->brain, &mum->brain, &t->rng, 0.15f);
+  baby->max_size = nudge(t, mum->max_size, 0.1f, 0.9f, 1.7f);
+  baby->pace = nudge(t, mum->pace, 0.05f, 0.85f, 1.25f);
+  baby->slim = nudge(t, mum->slim, 0.05f, 0.8f, 1.25f);
+  baby->score = 0.0f;
+  baby->eaten = baby->wall_hits = baby->bites = baby->kills = 0;
+  t->like[gone][parent] = 0.5f;
+  t->like[parent][gone] = 0.5f;
+  return parent;
+}
+
 int tank_add_food(Tank *t, float x, float y) {
   for (int k = 0; k < N_FOOD; k++) {
     if (!t->food[k].there) {

@@ -36,9 +36,16 @@ build/gen/fish_brains.h: FORCE
 	$(HOSTCC) -O2 -Wall -fno-math-errno -IFish tools/train_fish.c Fish/fish_sim.c -lm -o build/train_fish
 	build/train_fish $@ build/gen/fish_training.json
 
+# The same fish rules and trained brains, built for web browsers (for the status website).
+web: build/fish.wasm
+build/fish.wasm: build/gen/fish_brains.h FORCE
+	clang --target=wasm32 -O2 -ffreestanding -fno-builtin -nostdlib -Wall \
+	  -Wl,--no-entry -Wl,--export-dynamic -IFish -Ibuild/gen \
+	  tools/fish_web.c Fish/fish_sim.c -o $@
+
 clean:
 	rm -rf build
 
 FORCE:
-.PHONY: all clean FORCE
+.PHONY: all web clean FORCE
 .SECONDARY:
