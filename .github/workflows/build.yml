@@ -138,6 +138,25 @@ jobs:
       - name: Check the finished website (scripts, files, and a five-minute test tank)
         run: node tools/check_site.mjs _site
 
+      - name: Open the finished website in a real browser (no window) and check it works
+        run: |
+          mkdir -p /tmp/page-check && cp tools/check_page.mjs /tmp/page-check/
+          cd /tmp/page-check
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --silent playwright@1.48.2
+          npx playwright install --with-deps chromium >/dev/null
+          (cd "$GITHUB_WORKSPACE/_site" && python3 -m http.server 8123 >/dev/null 2>&1 &)
+          sleep 2
+          node check_page.mjs http://localhost:8123/ "$GITHUB_WORKSPACE/page.png"
+
+      - name: Keep the screenshot of the page
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-screenshot
+          path: page.png
+          if-no-files-found: ignore
+
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
