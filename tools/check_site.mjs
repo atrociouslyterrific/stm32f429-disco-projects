@@ -29,6 +29,9 @@ for (const leftover of ["__BUILD__", "__REPO__"]) if (html.includes(leftover)) p
 
 // 3. Files the page loads must exist.
 for (const [, file] of html.matchAll(/from "\.\/([^"]+)"/g)) if (!fs.existsSync(path.join(site, file))) problem("missing file " + file);
+const build = (html.match(/fish-(\d+)\.wasm/) || [])[1];
+if (!build) problem("the page doesn't name its fish rules file by build");
+else if (!fs.existsSync(path.join(site, "fish-" + build + ".wasm"))) problem("missing file fish-" + build + ".wasm");
 for (const file of ["fish.wasm", "status.json", "Fish.bin", "Blink.bin", "HelloScreen.bin"]) if (!fs.existsSync(path.join(site, file))) problem("missing file " + file);
 
 // 4. Every element the scripts look up by name must be on the page.

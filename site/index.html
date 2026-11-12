@@ -85,6 +85,10 @@
   /* live tank */
   .tank-wrap { display: flex; justify-content: center; }
   canvas#brain { width: 100%; height: 560px; display: block; }
+  canvas#evo-tree { width: 100%; height: 260px; display: block; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: -8px 0 16px; }
+  nav.jump a { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); text-decoration: none; font-size: .9rem; }
+  .card { scroll-margin-top: 12px; }
   canvas#brain-genes { width: 100%; height: 30px; display: block; border-radius: 6px; }
   .gene { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) 92px; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); }
   .gene:last-child { border-bottom: 0; }
@@ -176,6 +180,12 @@
   <h1>STM32 board</h1>
   <p class="sub">Programs for the STM32F429I-DISCO board: put one on the board, see how the latest build went,
     watch the fish, and follow their training.</p>
+  <nav class="jump" aria-label="Sections">
+    <a href="#flash">Flash</a><a href="#tank">Tank</a><a href="#evolution">Evolution</a><a href="#genes">Genes</a>
+    <a href="#families-card">Families</a><a href="#brain-card">Brain</a><a href="#training-card">Training</a>
+  </nav>
+  <p id="newer" class="pill busy" style="white-space:normal;border-radius:10px;padding:8px 14px;margin:0 0 16px" hidden>
+    A newer version of this page is out (build <span id="newer-build"></span>). <a href="#" id="newer-reload">Reload to get it</a>.</p>
 
   <div class="card">
     <h2>Latest build</h2>
@@ -183,7 +193,7 @@
     <p id="detail" class="muted" style="margin:10px 0 0"></p>
   </div>
 
-  <div class="card">
+  <div class="card" id="flash">
     <h2>Put a program on the board</h2>
     <p class="lead">This page is build <span id="build">__BUILD__</span>. Use Chrome or Edge on a computer.</p>
 
@@ -222,7 +232,7 @@
 
   <div class="tiles" id="tiles"></div>
 
-  <div class="card">
+  <div class="card" id="tank">
     <h2 id="tank-title">Live fish tank</h2>
     <p class="lead" id="tank-lead">This runs in your browser with the same rules and the same trained brains as the Fish program
       on the board. Click or tap the water to drop food.</p>
@@ -265,7 +275,20 @@
     <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
   </div>
 
-  <div class="card">
+  <div class="card" id="evolution">
+    <h2>Evolution</h2>
+    <p class="lead">Every animal starts as a Fry and evolves by eating. After the Turtle the path splits: animals that have
+      hunted become Sharks and then Orcas; gentle ones become Rays and then Whales. Bright animals are in the tank now.</p>
+    <canvas id="evo-tree" aria-label="Evolution diagram: Fry, Squid, Turtle, then Shark and Orca, or Ray and Whale, with how many of each"></canvas>
+    <p id="evo-summary" class="small" style="margin:6px 0 0"></p>
+    <h3>The gene pool over time</h3>
+    <p class="muted small" style="margin:0 0 6px">For each gene, the line is the average across the animals alive at the
+      time and the shaded band runs from the lowest to the highest. When a line drifts up or down, the tank is evolving:
+      animals with those genes are surviving and having babies more than the rest.</p>
+    <div class="fam-wrap"><div id="gene-pool"></div><div class="tip" id="pool-tip"></div></div>
+  </div>
+
+  <div class="card" id="genes">
     <h2>Genes and family</h2>
     <p class="lead">Every animal carries a genome: genes it is born with and keeps for life. A baby gets each gene from one
       parent or the other, and now and then a gene changes a little on the way (a mutation). So families look and behave
@@ -288,7 +311,7 @@
     <div id="family-tree"></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="families-card">
     <h2>Families</h2>
     <p class="lead">The tank starts with ten founders, each the head of a family. Every baby joins its mum's family. Each
       chart shows how many of that family are alive over time (all on the same scale, 0 to 10); families that lose every
@@ -306,7 +329,7 @@
     </details>
   </div>
 
-  <div class="card">
+  <div class="card" id="brain-card">
     <h2>Inside a brain</h2>
     <p class="lead">Every animal in the tank is steered by its own small neural network. This is one of them, thinking,
       right now: what it senses on the left (including its own personality), two layers of hidden cells (16, then 8)
@@ -325,7 +348,7 @@
       babies get their parent's connections with small random changes, which is how the brains evolve.</p>
   </div>
 
-  <div class="card">
+  <div class="card" id="training-card">
     <h2>Training progress</h2>
     <p id="training-live" class="pill busy" style="white-space:normal;border-radius:10px;padding:6px 12px;margin:0 0 12px" hidden></p>
     <p class="lead" id="training-summary">Loading…</p>
@@ -816,6 +839,10 @@ async function loadPublished() {
     const r = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     const s = await r.json();
+    if (s.build > __BUILD__) { // the browser showed an old copy of this page
+      $("newer-build").textContent = s.build;
+      $("newer").hidden = false;
+    }
 
     for (const p of s.programs) {
       const slot = document.querySelector('[data-size="' + p.name + '"]');
@@ -885,6 +912,7 @@ async function refresh() {
 }
 refresh();
 setInterval(refresh, 60000);
+$("newer-reload").addEventListener("click", (ev) => { ev.preventDefault(); location.replace(location.pathname + "?v=" + Date.now()); });
 
 // ---------- the live tank ----------
 // One renderer, two possible sources: this page's own copy of the fish rules (running in
@@ -910,10 +938,12 @@ const DECISIONS = ["Turn right", "Swim harder", "Bite"];
 const EV_BIT = 0, EV_ATE = 1, EV_STARVED = 2, EV_BORN = 3, EV_LIKES = 4, EV_HATES = 5, EV_FOUGHT = 6, EV_EVOLVED = 7;
 
 async function startTank() {
-  const canvas = $("tank"), ctx = canvas.getContext("2d");
+  const canvas = $("tank"), ctx = canvas.getContext("2d"), tankCtx = ctx;
   let sim;
   try {
-    const bytes = await (await fetch("fish.wasm?t=" + Date.now(), { cache: "no-store" })).arrayBuffer();
+    // The fish rules are named after the build, so this page always gets the rules it was
+    // made with, even if the browser kept an old copy of the page.
+    const bytes = await (await fetch("fish-__BUILD__.wasm", { cache: "no-store" })).arrayBuffer();
     sim = (await WebAssembly.instantiate(bytes, {})).instance.exports;
   } catch (e) {
     $("tank-note").textContent = "The live tank couldn't start in this browser.";
@@ -1076,7 +1106,8 @@ async function startTank() {
 
   // Draw one sea animal on the standard grid (nose towards +x), the same shapes as
   // animal_part() in Fish/main.c. `col` has its colours; `marking` is its own stripe or dark back.
-  function drawAnimal(kind, col, marking) {
+  function drawAnimal(kind, col, marking, onto) {
+    const ctx = onto || tankCtx; // (the tank, unless told otherwise)
     const E = (cx, cy, rx, ry, fill) => { ctx.fillStyle = fill; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); };
     const P = (pts, fill) => { ctx.fillStyle = fill; ctx.beginPath(); pts.forEach(([px, py], n) => n ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.closePath(); ctx.fill(); };
     const R = (rx, ry, w, h, fill) => { ctx.fillStyle = fill; ctx.fillRect(rx, ry, w, h); };
@@ -1233,6 +1264,8 @@ async function startTank() {
     noteAnimals(s, looks);
     drawGenome(s, looks);
     drawFamilies();
+    drawEvolution(s);
+    drawGenePool();
   }
 
   // ----- genetics and families -----
@@ -1287,6 +1320,7 @@ async function startTank() {
       r.marking = looks[i].marking;
       r.kind = Math.round(s[o + 15]);
       r.genes = GENES.map(g => s[o + g.at]);
+      (r.kinds = r.kinds || new Set()).add(r.kind);
       r.slot = i;
     }
     for (const r of registry.values()) if (r.died === null && !alive.has(r.id)) { r.died = now; r.slot = -1; }
@@ -1295,7 +1329,12 @@ async function startTank() {
       lastSample = now;
       const counts = new Array(N).fill(0);
       for (let i = 0; i < N; i++) counts[Math.round(s[FISH_AT + i * PER + 19])]++;
-      familyHistory.push({ t: now, counts });
+      // ...and the gene pool: each gene's average, lowest and highest (on a 0..1 scale)
+      const pool = GENES.map(g => {
+        const v = [...Array(N).keys()].map(i => (s[FISH_AT + i * PER + g.at] - g.lo) / (g.hi - g.lo));
+        return [v.reduce((a, b) => a + b, 0) / N, Math.min(...v), Math.max(...v)];
+      });
+      familyHistory.push({ t: now, counts, pool });
       if (familyHistory.length > 300) familyHistory.shift();
     }
   }
@@ -1478,6 +1517,112 @@ async function startTank() {
     for (const h of familyHistory) if (Math.abs(h.t - at) < Math.abs(near.t - at)) near = h;
     const tip = $("fam-tip"), host = $("families").getBoundingClientRect();
     tip.replaceChildren(el("b", familyName(f)), el("div", clockOf(near.t) + " · " + near.counts[f] + " alive"));
+    tip.style.display = "block";
+    tip.style.left = Math.min(host.width - tip.offsetWidth, Math.max(0, ev.clientX - host.left + 12)) + "px";
+    tip.style.top = (r.top - host.top - 4) + "px";
+  }
+
+  // ----- evolution: which animals exist, and how the gene pool is changing -----
+  // Where each kind sits in the evolution diagram: [column, row]. Rows 0..2; the path
+  // splits after the Turtle, hunters going up and gentle animals going down.
+  const TREE = [[0, 1], [1, 1], [2, 1], [3, 0], [3, 2], [4, 0], [4, 2]]; // Fry, Squid, Turtle, Shark, Ray, Orca, Whale
+  const TREE_LINKS = [[0, 1], [1, 2], [2, 3], [2, 4], [3, 5], [4, 6]];
+  const evoCanvas = $("evo-tree"), ectx = evoCanvas.getContext("2d");
+
+  function drawEvolution(s) {
+    const W = evoCanvas.clientWidth, H = evoCanvas.clientHeight, ratio = window.devicePixelRatio || 1;
+    if (!W) return;
+    if (evoCanvas.width !== Math.round(W * ratio)) { evoCanvas.width = Math.round(W * ratio); evoCanvas.height = Math.round(H * ratio); }
+    ectx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ectx.clearRect(0, 0, W, H);
+    const text = css("--text"), muted = css("--muted"), line = css("--line");
+
+    // How many are each kind now, and how many have ever been each kind.
+    const now = new Array(SPECIES.length).fill(0), ever = new Array(SPECIES.length).fill(0);
+    for (let i = 0; i < N; i++) now[Math.round(s[FISH_AT + i * PER + 15])]++;
+    for (const r of registry.values()) for (const k of r.kinds || []) ever[k]++;
+
+    const pad = W < 520 ? 34 : 60, colW = (W - 2 * pad) / 4;
+    const at = (k) => [pad + TREE[k][0] * colW, 40 + TREE[k][1] * (H - 92) / 2];
+    ectx.lineWidth = 2;
+    ectx.strokeStyle = line;
+    for (const [a, b] of TREE_LINKS) {
+      const [xa, ya] = at(a), [xb, yb] = at(b);
+      ectx.beginPath(); ectx.moveTo(xa + 22, ya); ectx.bezierCurveTo(xa + colW / 2, ya, xb - colW / 2, yb, xb - 22, yb); ectx.stroke();
+    }
+    ectx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ectx.textAlign = "center";
+    ectx.fillStyle = muted;
+    const [tx, ty] = at(2);
+    ectx.fillText("hunters ↗", tx + colW * 0.55, ty - (H - 92) / 4 - 4);
+    ectx.fillText("gentle ↘", tx + colW * 0.55, ty + (H - 92) / 4 + 12);
+
+    for (let k = 0; k < SPECIES.length; k++) {
+      const [x, y] = at(k), present = now[k] > 0;
+      ectx.save();
+      ectx.globalAlpha = present ? 1 : 0.35;
+      ectx.translate(x, y);
+      ectx.scale(2.2, 2.2);
+      const body = present ? [90, 170, 230] : [150, 155, 165];
+      drawAnimal(k, {
+        body: rgb(body, 1), fin: rgb(body, 0.66), dark: rgb(body, 0.4), pale: rgb(body.map(v => (v + 510) / 3), 1), eye: "rgb(10,10,30)",
+      }, 0, ectx);
+      ectx.restore();
+      ectx.fillStyle = text;
+      ectx.font = "600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      ectx.fillText(SPECIES[k], x, y + 30);
+      ectx.fillStyle = muted;
+      ectx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      ectx.fillText(now[k] + " now · " + ever[k] + " so far", x, y + 44);
+    }
+    $("evo-summary").textContent = "Right now: " + SPECIES.map((name, k) => now[k] ? now[k] + " " + name : "").filter(Boolean).join(", ") + ".";
+  }
+
+  // The gene pool: for each gene, the average across the living animals over time, with a
+  // faint band from the lowest to the highest. A line that drifts is evolution happening.
+  function drawGenePool() {
+    const box = $("gene-pool");
+    if (!familyHistory.length || !familyHistory[0].pool) return;
+    if (box.children.length !== GENES.length) {
+      box.replaceChildren();
+      GENES.forEach((g, k) => {
+        const row = el("div", undefined, "fam");
+        const label = el("div", undefined, "fam-name");
+        label.append(el("span", g.name + (g.trait ? " (trait)" : "")));
+        const chart = svg("svg", { class: "spark", preserveAspectRatio: "none", viewBox: "0 0 300 30", role: "img" });
+        chart.append(svg("path", { fill: css("--series-1"), "fill-opacity": 0.16 }),
+                     svg("path", { fill: "none", stroke: css("--series-1"), "stroke-width": 2, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
+        chart.addEventListener("pointermove", (ev) => poolTip(ev, k, chart));
+        chart.addEventListener("pointerleave", () => { $("pool-tip").style.display = "none"; });
+        row.append(label, chart, el("div", "", "fam-stats"));
+        box.append(row);
+      });
+    }
+    const hist = familyHistory.filter(h => h.pool), t0 = hist[0].t, t1 = Math.max(t0 + 1, hist[hist.length - 1].t);
+    const X = (t) => ((t - t0) / (t1 - t0) * 300).toFixed(1), Y = (v) => (29 - v * 27).toFixed(1);
+    GENES.forEach((g, k) => {
+      const [, chart, stats] = box.children[k].children;
+      const top = hist.map(h => X(h.t) + " " + Y(h.pool[k][2])), bottom = hist.slice().reverse().map(h => X(h.t) + " " + Y(h.pool[k][1]));
+      chart.children[0].setAttribute("d", "M" + top.join(" L") + " L" + bottom.join(" L") + " Z");
+      chart.children[1].setAttribute("d", "M" + hist.map(h => X(h.t) + " " + Y(h.pool[k][0])).join(" L"));
+      const first = hist[0].pool[k][0], last = hist[hist.length - 1].pool[k][0], change = last - first;
+      const avg = last < 0.33 ? g.words[0] : last < 0.67 ? g.words[1] : g.words[2];
+      stats.textContent = "mostly " + avg + (Math.abs(change) > 0.08 ? (change > 0 ? " · rising" : " · falling") : " · steady");
+      chart.setAttribute("aria-label", g.name + ": the average is " + avg);
+    });
+  }
+
+  function poolTip(ev, k, chart) {
+    const hist = familyHistory.filter(h => h.pool);
+    if (!hist.length) return;
+    const r = chart.getBoundingClientRect(), t0 = hist[0].t, t1 = Math.max(t0 + 1, hist[hist.length - 1].t);
+    const at = t0 + (ev.clientX - r.left) / r.width * (t1 - t0);
+    let near = hist[0];
+    for (const h of hist) if (Math.abs(h.t - at) < Math.abs(near.t - at)) near = h;
+    const g = GENES[k], value = (v) => (g.lo + v * (g.hi - g.lo)).toFixed(2);
+    const tip = $("pool-tip"), host = $("gene-pool").getBoundingClientRect();
+    tip.replaceChildren(el("b", g.name + " · " + clockOf(near.t)),
+      el("div", "average " + value(near.pool[k][0]) + " (lowest " + value(near.pool[k][1]) + ", highest " + value(near.pool[k][2]) + ")"));
     tip.style.display = "block";
     tip.style.left = Math.min(host.width - tip.offsetWidth, Math.max(0, ev.clientX - host.left + 12)) + "px";
     tip.style.top = (r.top - host.top - 4) + "px";

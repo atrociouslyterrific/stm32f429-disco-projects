@@ -48,6 +48,9 @@ const facts = await page.evaluate(() => {
     tankNote: text("tank-note").slice(0, 120),
     tankDrawn: coloured,
     flashButtons: document.querySelectorAll("button.go").length,
+    evolutionSummary: text("evo-summary"),
+    genePoolRows: document.querySelectorAll("#gene-pool .fam").length,
+    newerBanner: !document.getElementById("newer").hidden,
   };
 });
 await page.screenshot({ path: shot, fullPage: true });
@@ -62,6 +65,9 @@ if (facts.trainingChartLines < 2) problems.push("the training chart has no lines
 if (/couldn't start/i.test(facts.tankNote)) problems.push("the live tank didn't start: " + facts.tankNote);
 if (facts.tankDrawn < 50) problems.push("the tank looks blank");
 if (facts.flashButtons !== 3) problems.push("expected 3 Flash buttons");
+if (!/Right now:/.test(facts.evolutionSummary)) problems.push("the evolution diagram didn't fill in");
+if (facts.genePoolRows < 9) problems.push("the gene pool has " + facts.genePoolRows + " rows");
+if (facts.newerBanner) problems.push("the page thinks it is out of date");
 for (const p of problems) console.log("PROBLEM: " + p);
 if (problems.length) process.exit(1);
 console.log("the page works in a real browser");

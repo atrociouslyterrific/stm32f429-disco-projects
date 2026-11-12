@@ -126,6 +126,7 @@ jobs:
           # name every build so a new page is never mixed up with cached older code.
           N="${{ github.run_number }}"
           mv _site/webstlink "_site/webstlink-$N"
+          cp _site/fish.wasm "_site/fish-$N.wasm" # named per build, like the flashing code
           sed -i "s|\./webstlink/|./webstlink-$N/|g; s|__BUILD__|$N|g" _site/index.html
           sed -i "s|__REPO__|${{ github.repository }}|g" _site/index.html
           grep -n "webstlink-$N" _site/index.html
