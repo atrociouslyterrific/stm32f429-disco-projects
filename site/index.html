@@ -724,6 +724,7 @@ function drawChart() {
   root.replaceChildren();
   if (!pts || pts.length < 2) return;
   const W = box.clientWidth, H = 250;
+  if (W < 200) return; // not laid out yet (or far too narrow): try again on the next update
   const m = { l: 40, r: W < 520 ? 12 : 92, t: 10, b: 34 };
   root.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
