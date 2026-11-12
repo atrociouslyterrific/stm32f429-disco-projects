@@ -1,0 +1,56 @@
+name: Build programs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # lets the build publish the "latest" download
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm  # same runner pool as the Pip and Bloop builds
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the ARM compiler
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi make
+
+      - name: Compile Blink
+        run: make -C Blink
+
+      - name: Check the program starts the way the chip expects
+        run: |
+          # First 4 bytes = where the stack begins (must be in RAM, 0x2000xxxx/0x2002xxxx);
+          # next 4 = first code to run (must be in flash, 0x08xxxxxx).
+          od -A n -t x4 -N 8 Blink/Blink.bin | tee head.txt
+          grep -Eq '^ *2003[0-9a-f]{4} 08[0-9a-f]{6}' head.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blink
+          path: Blink/Blink.bin
+
+      - name: Update "latest" release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          NOTES="Build ${{ github.run_number }} · $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Flash Blink.bin from Chrome with https://devanlai.github.io/webstlink/demo/ (address 0x08000000)."
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --notes "$NOTES"
+          else
+            gh release create latest --title "Latest program files" --notes "$NOTES"
+          fi
+          gh release upload latest Blink/Blink.bin --clobber
