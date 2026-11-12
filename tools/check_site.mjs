@@ -36,6 +36,8 @@ for (const file of ["fish.wasm", "status.json", "Fish.bin", "Blink.bin", "HelloS
 
 // 4. Every element the scripts look up by name must be on the page.
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
+const allIds = [...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
+for (const id of new Set(allIds.filter((id, n) => allIds.indexOf(id) !== n))) problem('two elements share id="' + id + '"');
 const wanted = new Set([...html.matchAll(/(?:\$|getElementById)\("([\w-]+)"\)/g)].map(m => m[1]));
 for (const id of wanted) if (!ids.has(id)) problem('the scripts look for id="' + id + '" but the page has none');
 console.log(wanted.size + " element lookups match the page");
