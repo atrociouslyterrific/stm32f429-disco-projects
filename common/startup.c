@@ -37,3 +37,18 @@ static void (*const vectors[16])(void) = {
   Default_Handler,             // PendSV
   Default_Handler,             // SysTick
 };
+
+// The compiler sometimes asks for these two helpers by name (for example when copying a
+// block of data). There is no standard library on the chip, so they are provided here.
+__attribute__((used)) void *memcpy(void *dst, const void *src, __SIZE_TYPE__ n) {
+  unsigned char *d = dst;
+  const unsigned char *s = src;
+  while (n--) *d++ = *s++;
+  return dst;
+}
+
+__attribute__((used)) void *memset(void *dst, int value, __SIZE_TYPE__ n) {
+  unsigned char *d = dst;
+  while (n--) *d++ = (unsigned char)value;
+  return dst;
+}

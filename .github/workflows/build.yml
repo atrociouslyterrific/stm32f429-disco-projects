@@ -23,22 +23,30 @@ jobs:
       - name: Install the ARM compiler
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi make
+          sudo apt-get install -y -q --no-install-recommends gcc-arm-none-eabi binutils-arm-none-eabi make gcc libc6-dev
 
-      - name: Compile Blink
-        run: make -C Blink
-
-      - name: Check the program starts the way the chip expects
+      - name: Check the font pictures (prints a sample)
         run: |
-          # First 4 bytes = where the stack begins (must be in RAM, 0x2000xxxx/0x2002xxxx);
+          gcc -Wall -Icommon tools/check_font.c common/font.c -o check_font
+          ./check_font
+
+      - name: Compile every program
+        run: make
+
+      - name: Check each program starts the way the chip expects
+        run: |
+          # First 4 bytes = where the stack begins (must be in RAM, 0x2003xxxx);
           # next 4 = first code to run (must be in flash, 0x08xxxxxx).
-          od -A n -t x4 -N 8 Blink/Blink.bin | tee head.txt
-          grep -Eq '^ *2003[0-9a-f]{4} 08[0-9a-f]{6}' head.txt
+          for f in build/*.bin; do
+            echo "$f: $(stat -c %s "$f") bytes"
+            od -A n -t x4 -N 8 "$f" | tee head.txt
+            grep -Eq '^ *2003[0-9a-f]{4} 08[0-9a-f]{6}' head.txt
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Blink
-          path: Blink/Blink.bin
+          name: programs
+          path: build/*.bin
 
       - name: Update "latest" release
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -53,13 +61,13 @@ jobs:
           else
             gh release create latest --title "Latest program files" --notes "$NOTES"
           fi
-          gh release upload latest Blink/Blink.bin --clobber
+          gh release upload latest build/*.bin --clobber
 
       - name: Put the flashing website together
         run: |
           mkdir -p _site
           cp -R site/. _site/
-          cp Blink/Blink.bin _site/Blink.bin
+          cp build/*.bin _site/
           # Browsers keep GitHub Pages files for 10 minutes. Give the flashing code a new folder
           # name every build so a new page is never mixed up with cached older code.
           N="${{ github.run_number }}"

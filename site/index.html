@@ -26,11 +26,13 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
   ol { margin: 0; padding-left: 1.3em; }
   li { margin-bottom: 6px; }
-  button#go {
+  button.go {
     width: 100%; padding: 14px; font-size: 1.1rem; font-weight: 600; border: 0; border-radius: 10px;
     background: var(--accent); color: var(--accent-text); cursor: pointer;
   }
-  button#go:disabled { opacity: .55; cursor: default; }
+  button.go:disabled { opacity: .55; cursor: default; }
+  .prog + .prog { margin-top: 16px; }
+  .desc { margin: 6px 2px 0; color: var(--muted); font-size: .92rem; }
   #status { margin: 16px 0 0; font-weight: 600; min-height: 1.5em; }
   #status.ok { color: var(--ok); } #status.bad { color: var(--bad); } #status.busy { color: var(--muted); }
   #help { margin: 6px 0 0; color: var(--muted); }
@@ -44,19 +46,26 @@
 <body>
 <main>
   <h1>STM32 board flasher</h1>
-  <p class="sub">Puts the <strong>Blink</strong> program on the STM32F429I-DISCO board. Build <span id="build">__BUILD__</span>.</p>
+  <p class="sub">Puts a program on the STM32F429I-DISCO board. Build <span id="build">__BUILD__</span>.</p>
 
   <div class="card">
     <ol>
       <li>Plug the board into the computer with the mini-USB cable (the socket marked <em>USB ST-LINK</em>).</li>
-      <li>Click the button below.</li>
+      <li>Click the button for the program you want.</li>
       <li>Chrome shows a small pop-up. Click <strong>STM32 STLink</strong> in its list, then click the pop-up's <strong>Connect</strong> button.</li>
-      <li>Wait a few seconds. The green and red lights beside the screen start taking turns.</li>
+      <li>Wait a few seconds for “Done”. The new program starts by itself.</li>
     </ol>
   </div>
 
   <div class="card">
-    <button id="go">Flash Blink</button>
+    <div class="prog">
+      <button class="go" data-file="HelloScreen.bin" data-done="The screen should say HELLO! with three colour bars and a seconds counter.">Flash Hello Screen</button>
+      <p class="desc">Lights up the screen: a greeting, colour bars and a seconds counter.</p>
+    </div>
+    <div class="prog">
+      <button class="go" data-file="Blink.bin" data-done="The green and red lights should be taking turns. The screen stays blank.">Flash Blink</button>
+      <p class="desc">The two lights beside the screen take turns. The screen stays blank.</p>
+    </div>
     <p id="status" role="status"></p>
     <p id="help"></p>
     <details>
@@ -65,8 +74,7 @@
     </details>
   </div>
 
-  <p class="foot">The screen stays blank while Blink runs; this program only uses the lights.
-  Works in Chrome or Edge on a computer. Uses <a href="https://github.com/devanlai/webstlink">webstlink</a> (MIT).</p>
+  <p class="foot">Works in Chrome or Edge on a computer. Uses <a href="https://github.com/devanlai/webstlink">webstlink</a> (MIT).</p>
 </main>
 
 <script type="module">
@@ -74,7 +82,8 @@ import WebStlink from "./webstlink/webstlink.js";
 import * as libstlink from "./webstlink/lib/package.js";
 
 const FLASH_START = 0x08000000;
-const go = document.getElementById("go");
+const buttons = [...document.querySelectorAll("button.go")];
+const setDisabled = (off) => buttons.forEach(b => { b.disabled = off; });
 const statusEl = document.getElementById("status");
 const helpEl = document.getElementById("help");
 const logEl = document.getElementById("log");
@@ -104,26 +113,27 @@ function explain(err) {
             "Its built-in software needs a one-time update with ST's updater app. Copy the technical details below and ask for help."];
   if (/Verify error/i.test(msg))
     return ["The program didn't copy correctly.", "Click the button to try again."];
-  if (/Blink\.bin/.test(msg))
+  if (/download failed/.test(msg))
     return ["Couldn't download the program.", "Check the internet connection and reload this page."];
   return ["Something went wrong.", "Unplug the board, plug it back in, and try once more. If it happens again, copy the technical details below and ask for help."];
 }
 
 if (!("usb" in navigator)) {
-  go.disabled = true;
+  setDisabled(true);
   say("This browser can't talk to USB devices.", "bad", "Open this page in Google Chrome or Microsoft Edge on a computer.");
 }
 
-go.addEventListener("click", async () => {
-  go.disabled = true;
+buttons.forEach(button => button.addEventListener("click", async () => {
+  const file = button.dataset.file;
+  setDisabled(true);
   logger.clear();
   let stlink = null;
   try {
     say("Getting the program…");
-    const resp = await fetch("Blink.bin?t=" + Date.now(), { cache: "no-store" });
-    if (!resp.ok) throw new Error("Blink.bin download failed: HTTP " + resp.status);
+    const resp = await fetch(file + "?t=" + Date.now(), { cache: "no-store" });
+    if (!resp.ok) throw new Error(file + " download failed: HTTP " + resp.status);
     const data = new Uint8Array(await resp.arrayBuffer());
-    logger.info(`Page build __BUILD__ · Blink.bin: ${data.length} bytes`);
+    logger.info(`Page build __BUILD__ · ${file}: ${data.length} bytes`);
 
     say("Choose “STM32 STLink” in the pop-up, then click Connect.");
     const device = await navigator.usb.requestDevice({ filters: libstlink.usb.filters });
@@ -150,8 +160,8 @@ go.addEventListener("click", async () => {
     say("Starting the program…");
     await stlink.reset(false);
 
-    say("Done. The green and red lights should be taking turns.", "ok",
-        "If they aren't, press the black button on the board once.");
+    say("Done. " + button.dataset.done, "ok",
+        "If nothing changed, press the black button on the board once.");
   } catch (err) {
     console.error(err);
     logger.error(String(err && err.stack ? err.stack : err));
@@ -159,9 +169,9 @@ go.addEventListener("click", async () => {
     say(what, "bad", how);
   } finally {
     if (stlink) { try { await stlink.detach(); } catch (e) { /* already gone */ } }
-    go.disabled = !("usb" in navigator);
+    setDisabled(!("usb" in navigator));
   }
-});
+}));
 </script>
 </body>
 </html>

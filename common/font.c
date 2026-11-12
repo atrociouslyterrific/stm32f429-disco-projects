@@ -1,0 +1,307 @@
+// A small font, drawn right here in the code. Each letter is a grid 5 dots wide and
+// 7 dots tall: X is a lit dot, . is an unlit one. Change a picture and the letter changes.
+
+#include "font.h"
+
+struct glyph {
+  char c;
+  const char *dots; // 7 rows of 5, one after another
+};
+
+static const struct glyph GLYPHS[] = {
+  {'A', ".XXX."
+        "X...X"
+        "X...X"
+        "XXXXX"
+        "X...X"
+        "X...X"
+        "X...X"},
+  {'B', "XXXX."
+        "X...X"
+        "X...X"
+        "XXXX."
+        "X...X"
+        "X...X"
+        "XXXX."},
+  {'C', ".XXX."
+        "X...X"
+        "X...."
+        "X...."
+        "X...."
+        "X...X"
+        ".XXX."},
+  {'D', "XXXX."
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        "XXXX."},
+  {'E', "XXXXX"
+        "X...."
+        "X...."
+        "XXXX."
+        "X...."
+        "X...."
+        "XXXXX"},
+  {'F', "XXXXX"
+        "X...."
+        "X...."
+        "XXXX."
+        "X...."
+        "X...."
+        "X...."},
+  {'G', ".XXX."
+        "X...X"
+        "X...."
+        "X.XXX"
+        "X...X"
+        "X...X"
+        ".XXXX"},
+  {'H', "X...X"
+        "X...X"
+        "X...X"
+        "XXXXX"
+        "X...X"
+        "X...X"
+        "X...X"},
+  {'I', ".XXX."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        ".XXX."},
+  {'J', "..XXX"
+        "...X."
+        "...X."
+        "...X."
+        "...X."
+        "X..X."
+        ".XX.."},
+  {'K', "X...X"
+        "X..X."
+        "X.X.."
+        "XX..."
+        "X.X.."
+        "X..X."
+        "X...X"},
+  {'L', "X...."
+        "X...."
+        "X...."
+        "X...."
+        "X...."
+        "X...."
+        "XXXXX"},
+  {'M', "X...X"
+        "XX.XX"
+        "X.X.X"
+        "X.X.X"
+        "X...X"
+        "X...X"
+        "X...X"},
+  {'N', "X...X"
+        "XX..X"
+        "X.X.X"
+        "X..XX"
+        "X...X"
+        "X...X"
+        "X...X"},
+  {'O', ".XXX."
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        ".XXX."},
+  {'P', "XXXX."
+        "X...X"
+        "X...X"
+        "XXXX."
+        "X...."
+        "X...."
+        "X...."},
+  {'Q', ".XXX."
+        "X...X"
+        "X...X"
+        "X...X"
+        "X.X.X"
+        "X..X."
+        ".XX.X"},
+  {'R', "XXXX."
+        "X...X"
+        "X...X"
+        "XXXX."
+        "X.X.."
+        "X..X."
+        "X...X"},
+  {'S', ".XXXX"
+        "X...."
+        "X...."
+        ".XXX."
+        "....X"
+        "....X"
+        "XXXX."},
+  {'T', "XXXXX"
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."},
+  {'U', "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        ".XXX."},
+  {'V', "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        "X...X"
+        ".X.X."
+        "..X.."},
+  {'W', "X...X"
+        "X...X"
+        "X...X"
+        "X.X.X"
+        "X.X.X"
+        "XX.XX"
+        "X...X"},
+  {'X', "X...X"
+        "X...X"
+        ".X.X."
+        "..X.."
+        ".X.X."
+        "X...X"
+        "X...X"},
+  {'Y', "X...X"
+        "X...X"
+        ".X.X."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."},
+  {'Z', "XXXXX"
+        "....X"
+        "...X."
+        "..X.."
+        ".X..."
+        "X...."
+        "XXXXX"},
+  {'0', ".XXX."
+        "X...X"
+        "X..XX"
+        "X.X.X"
+        "XX..X"
+        "X...X"
+        ".XXX."},
+  {'1', "..X.."
+        ".XX.."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        ".XXX."},
+  {'2', ".XXX."
+        "X...X"
+        "....X"
+        "...X."
+        "..X.."
+        ".X..."
+        "XXXXX"},
+  {'3', "XXXXX"
+        "...X."
+        "..X.."
+        "...X."
+        "....X"
+        "X...X"
+        ".XXX."},
+  {'4', "...X."
+        "..XX."
+        ".X.X."
+        "X..X."
+        "XXXXX"
+        "...X."
+        "...X."},
+  {'5', "XXXXX"
+        "X...."
+        "XXXX."
+        "....X"
+        "....X"
+        "X...X"
+        ".XXX."},
+  {'6', "..XX."
+        ".X..."
+        "X...."
+        "XXXX."
+        "X...X"
+        "X...X"
+        ".XXX."},
+  {'7', "XXXXX"
+        "....X"
+        "...X."
+        "..X.."
+        ".X..."
+        ".X..."
+        ".X..."},
+  {'8', ".XXX."
+        "X...X"
+        "X...X"
+        ".XXX."
+        "X...X"
+        "X...X"
+        ".XXX."},
+  {'9', ".XXX."
+        "X...X"
+        "X...X"
+        ".XXXX"
+        "....X"
+        "...X."
+        ".XX.."},
+  {'!', "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        "..X.."
+        "....."
+        "..X.."},
+  {'?', ".XXX."
+        "X...X"
+        "....X"
+        "...X."
+        "..X.."
+        "....."
+        "..X.."},
+  {':', "....."
+        "..X.."
+        "....."
+        "....."
+        "....."
+        "..X.."
+        "....."},
+  {'.', "....."
+        "....."
+        "....."
+        "....."
+        "....."
+        "....."
+        "..X.."},
+  {'-', "....."
+        "....."
+        "....."
+        "XXXXX"
+        "....."
+        "....."
+        "....."},
+};
+
+const char *font_glyph(char c) {
+  if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A'); // only capitals are drawn
+  for (unsigned i = 0; i < sizeof GLYPHS / sizeof GLYPHS[0]; i++) {
+    if (GLYPHS[i].c == c) return GLYPHS[i].dots;
+  }
+  return 0; // not in the font (a space, for example): draws as blank
+}
