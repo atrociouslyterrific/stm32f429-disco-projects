@@ -1,11 +1,12 @@
 // Trains the fish brains. Runs on GitHub during the build (never on the board).
 //
-// It keeps a population of 96 brains and repeats, for as long as its time budget allows:
-//   1. Put the brains into tanks of 12 and let them live for a while at high speed.
-//   2. Score each one: food eaten, swimming with the group, not bumping walls or fish.
+// It keeps a population of 100 brains and repeats, for as long as its time budget allows:
+//   1. Put the brains into tanks of 10 fish of random sizes and let them live for a while at high speed.
+//   2. Score each one: food eaten, swimming with the group, not bumping walls, biting
+//      when hungry, and above all not starving or getting eaten.
 //   3. Keep the best quarter. Refill the rest with children of the best: each child
 //      mixes two parents' brains and adds small random changes.
-// At the end it writes 12 good-but-different brains to fish_brains.h for the board.
+// At the end it writes 10 good-but-different brains to fish_brains.h for the board.
 //
 // Usage: train_fish <brains file> [results file]   (TRAIN_SECONDS sets the time budget, default 40)
 // The optional results file is a small JSON summary shown on the status website.
@@ -15,8 +16,8 @@
 #include <time.h>
 #include "fish_sim.h"
 
-#define POP    96
-#define ELITE  24
+#define POP    100
+#define ELITE  25
 #define ROUNDS 2     // each brain is tried in this many different tanks per generation
 #define STEPS  1200  // ticks per try (40 seconds of tank time)
 #define MAX_GENERATIONS 2000
@@ -26,6 +27,14 @@ static float fit[POP];
 static int order[POP], ranked[POP];
 static Tank tank;
 static uint32_t rng = 20261112u;
+
+// One tick of a training tank. A fish that dies comes straight back as a newborn with
+// the same brain (it has already lost points for dying), so the tank stays full.
+static void live_one_tick(void) {
+  tank_step(&tank);
+  for (int k = 0; k < N_FISH; k++)
+    if (tank.fish[k].dead) tank_rebirth(&tank, k);
+}
 
 static void evaluate(void) {
   for (int p = 0; p < POP; p++) fit[p] = 0.0f;
@@ -38,7 +47,7 @@ static void evaluate(void) {
     for (int tk = 0; tk < POP / N_FISH; tk++) {
       tank_init(&tank, rng_next(&rng));
       for (int k = 0; k < N_FISH; k++) tank.fish[k].brain = pop[order[tk * N_FISH + k]];
-      for (int s = 0; s < STEPS; s++) tank_step(&tank);
+      for (int s = 0; s < STEPS; s++) live_one_tick();
       for (int k = 0; k < N_FISH; k++) fit[order[tk * N_FISH + k]] += tank.fish[k].score;
     }
   }
@@ -64,24 +73,27 @@ static void breed(void) {
 }
 
 // Fair comparison: the same 8 starting tanks, 100 seconds of tank time each.
-typedef struct { double food, walls, score; } Result;
+typedef struct { double food, walls, score, eaten_fish, starved; } Result;
 
 static Result measure(const char *label, const Brain brains[N_FISH]) {
-  double eaten = 0, walls = 0, score = 0;
+  double eaten = 0, walls = 0, score = 0, killed = 0, starved = 0;
   const int tanks = 8, steps = 3000;
   for (int s = 0; s < tanks; s++) {
     tank_init(&tank, 1000u + (uint32_t)s * 7919u);
     for (int k = 0; k < N_FISH; k++) tank.fish[k].brain = brains[k];
-    for (int i = 0; i < steps; i++) tank_step(&tank);
+    for (int i = 0; i < steps; i++) live_one_tick();
     for (int k = 0; k < N_FISH; k++) {
       eaten += tank.fish[k].eaten;
       walls += tank.fish[k].wall_hits;
       score += tank.fish[k].score;
     }
+    killed += tank.total_killed;
+    starved += tank.total_starved;
   }
   double n = (double)tanks * N_FISH;
-  printf("%-16s per fish in 100 s: food %.2f, wall bumps %.1f, score %.1f\n", label, eaten / n, walls / n, score / n);
-  Result result = {eaten / n, walls / n, score / n};
+  printf("%-16s per fish in 100 s: food %.2f, wall bumps %.1f, score %.1f | per tank: %.2f fish eaten, %.2f starved\n",
+         label, eaten / n, walls / n, score / n, killed / tanks, starved / tanks);
+  Result result = {eaten / n, walls / n, score / n, killed / tanks, starved / tanks};
   return result;
 }
 
@@ -114,7 +126,7 @@ int main(int argc, char **argv) {
   long seconds = (long)(time(NULL) - start);
   printf("trained for %d generations in %ld s\n", generation, seconds);
 
-  // Pick 12 for the board: the best one, then whichever of the top 32 is most unlike
+  // Pick 10 for the board: the best one, then whichever of the top 32 is most unlike
   // those already picked, so the fish have different characters.
   int chosen[N_FISH], n_chosen = 1;
   chosen[0] = ranked[0];
@@ -147,8 +159,11 @@ int main(int argc, char **argv) {
     FILE *js = fopen(argv[2], "w");
     if (!js) { perror(argv[2]); return 1; }
     fprintf(js, "{\"generations\": %d, \"seconds\": %ld,\n", generation, seconds);
-    fprintf(js, " \"instinct\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f},\n", r_before.food, r_before.walls, r_before.score);
-    fprintf(js, " \"trained\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f}}\n", r_after.food, r_after.walls, r_after.score);
+    const Result *rs[2] = {&r_before, &r_after};
+    const char *names[2] = {"instinct", "trained"};
+    for (int k = 0; k < 2; k++)
+      fprintf(js, " \"%s\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f, \"eaten_fish\": %.3f, \"starved\": %.3f}%s\n",
+              names[k], rs[k]->food, rs[k]->walls, rs[k]->score, rs[k]->eaten_fish, rs[k]->starved, k ? "}" : ",");
     fclose(js);
   }
 

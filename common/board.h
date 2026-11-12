@@ -7,6 +7,12 @@
 // A register is a fixed memory address that controls part of the chip.
 #define REG(addr) (*(volatile uint32_t *)(addr))
 
+// How fast the chip is running, in ticks per second. 16 million after power-on.
+extern uint32_t cpu_hz;
+// Speed the chip up to 84 million ticks per second. Call it first thing, before lcd_init.
+// Needed for programs that redraw a lot of the screen many times a second.
+void board_fast_clock(void);
+
 void delay_ms(uint32_t ms);
 
 void leds_init(void);

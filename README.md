@@ -9,11 +9,14 @@ sends it to the board.
 
 - **Blink** — the two lights beside the screen take turns: green, then red, half a second each.
 - **HelloScreen** — lights up the screen: a greeting, three colour bars and a seconds counter.
-- **Fish** — a school of twelve fish. Each has its own small neural-network brain that
-  senses food, the other fish and the walls, and decides how to turn and swim. The brains
-  are trained on GitHub during every build (`tools/train_fish.c`) and keep evolving on the
-  board: a fish that starves is replaced by a baby of the best-doing fish, with a slightly
-  changed brain. The blue button drops food.
+- **Fish** — ten fish, each one different (size, shape, colour, markings, pace) and each
+  steered by its own small neural-network brain. They get hungry and lose health when
+  starving; they form friendships and feuds; hungry fish can bite and eat clearly smaller
+  ones that aren't their friends. Tap the water to drop food (the blue button drops some
+  at random). The panel under the tank shows each fish's health (green), hunger (orange),
+  best friend (+) and worst enemy (-). When a fish dies, the best-doing fish has a baby
+  with a slightly changed brain, so the brains keep evolving on the board. The starting
+  brains are trained on GitHub during every build (`tools/train_fish.c`).
 
 Each program is a folder with a `main.c`. Code they share lives in `common/`: the startup
 code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you can edit).

@@ -98,8 +98,10 @@ void lcd_init(void) {
   pin_mode(GPIOF, 8, 2);
   pin_mode(GPIOF, 9, 2);
 
-  // SPI5: we are in charge of the clock, 8 bits at a time, fastest speed (8 MHz).
-  SPI5_CR1 = (1u << 2) | (1u << 8) | (1u << 9);
+  // SPI5: we are in charge of the clock, 8 bits at a time. Its speed is the chip's speed
+  // divided down: 16 MHz / 2 = 8 MHz normally, 84 MHz / 4 = 21 MHz after board_fast_clock.
+  uint32_t divide_by_4 = cpu_hz > 16000000u ? (1u << 3) : 0;
+  SPI5_CR1 = (1u << 2) | (1u << 8) | (1u << 9) | divide_by_4;
   SPI5_CR1 |= 1u << 6;
 
   pin_low(GPIOC, 2); // select the screen, and keep it selected

@@ -76,7 +76,7 @@
     <p id="training-summary" class="muted" style="margin-top:0">Loading…</p>
     <div class="scroll">
       <table id="training-table" hidden>
-        <thead><tr><th>Per fish, in 100 seconds</th><th class="num">Food eaten</th><th class="num">Wall bumps</th><th class="num">Score</th></tr></thead>
+        <thead><tr><th>In 100 seconds</th><th class="num">Food per fish</th><th class="num">Fish eaten</th><th class="num">Starved</th><th class="num">Score</th></tr></thead>
         <tbody id="training"></tbody>
       </table>
     </div>
@@ -94,7 +94,7 @@
 <script>
 const REPO = "__REPO__";
 const DESCRIPTIONS = {
-  Fish: "A school of twelve fish, each with its own small AI brain.",
+  Fish: "Ten different fish with their own AI brains, friendships, feuds and appetites.",
   HelloScreen: "A greeting, colour bars and a seconds counter on the screen.",
   Blink: "The two lights beside the screen take turns.",
 };
@@ -141,12 +141,14 @@ async function loadPublished() {
     if (s.fish) {
       $("training-summary").textContent =
         "Each build trains the fish brains from scratch: " + s.fish.generations + " generations in " +
-        s.fish.seconds + " seconds, starting from hand-written instincts.";
+        s.fish.seconds + " seconds, starting from hand-written instincts. Fish eaten and starved are per tank of ten fish.";
       const body2 = $("training");
       body2.replaceChildren();
       for (const [label, m] of [["Instincts only", s.fish.instinct], ["Trained brains", s.fish.trained]]) {
         const row = el("tr");
-        row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", m.walls.toFixed(1), "num"), el("td", m.score.toFixed(1), "num"));
+        const per_tank = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
+        row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", per_tank(m.eaten_fish), "num"),
+                   el("td", per_tank(m.starved), "num"), el("td", m.score.toFixed(1), "num"));
         body2.append(row);
       }
       $("training-table").hidden = false;

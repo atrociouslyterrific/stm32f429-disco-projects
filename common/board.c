@@ -9,10 +9,30 @@
 #define SYST_RVR REG(0xE000E014)
 #define SYST_CVR REG(0xE000E018)
 
-#define CPU_HZ 16000000u // after power-on the chip runs from its internal 16 MHz clock
+uint32_t cpu_hz = 16000000u; // after power-on the chip runs from its internal 16 MHz clock
+
+#define RCC_CR      REG(0x40023800)
+#define RCC_PLLCFGR REG(0x40023804)
+#define RCC_CFGR    REG(0x40023808)
+#define FLASH_ACR   REG(0x40023C00)
+
+// The chip has a clock multiplier (the "PLL"). This feeds it the internal 16 MHz clock
+// and asks for 16 / 16 * 336 / 4 = 84 MHz.
+void board_fast_clock(void) {
+  // Reading program memory takes longer than one tick at this speed: allow 2 extra,
+  // and switch on the memory's read-ahead and caches.
+  FLASH_ACR = 2u | (1u << 8) | (1u << 9) | (1u << 10);
+  RCC_PLLCFGR = 16u | (336u << 6) | (1u << 16) | (7u << 24);
+  RCC_CR |= 1u << 24;                 // start the multiplier
+  while (!(RCC_CR & (1u << 25))) {}   // wait until it is steady
+  // Slower parts of the chip (I2C among them) get half speed: 42 MHz.
+  RCC_CFGR = (RCC_CFGR & ~((7u << 10) | (7u << 13) | (0xFu << 4) | 3u)) | (4u << 10) | 2u;
+  while ((RCC_CFGR & (3u << 2)) != (2u << 2)) {} // wait for the switch-over
+  cpu_hz = 84000000u;
+}
 
 void delay_ms(uint32_t ms) {
-  SYST_RVR = CPU_HZ / 1000 - 1; // count down once per millisecond
+  SYST_RVR = cpu_hz / 1000 - 1; // count down once per millisecond
   SYST_CVR = 0;
   SYST_CSR = 5;                 // start, using the processor clock
   while (ms) {
