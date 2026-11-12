@@ -1,0 +1,100 @@
+name: Train fish talk
+
+# Trains the animals' language model on GitHub's computers: writes the practice
+# conversations, trains a small transformer on them, checks the C code that runs it on the
+# board gives the same answers, and keeps the result for the build. While it runs, it
+# publishes its progress every 30 seconds (to the "status-talk" branch), which the website
+# shows. When it finishes, the build runs again so the board and the website can talk.
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How many minutes to train for"
+        default: "30"
+  push:
+    branches: [main]
+    paths:  # what it learns from, or how it is built, changed
+      - "tools/talk_corpus.py"
+      - "tools/train_talk.py"
+      - "tools/talk_test.c"
+      - "Fish/fish_talk.c"
+      - "Fish/fish_talk.h"
+      - ".github/workflows/train_talk.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: train-talk
+  cancel-in-progress: true  # a newer change makes an older run pointless
+
+jobs:
+  train:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyTorch (on GitHub's computer)
+        run: pip install --quiet torch==2.5.1 numpy==2.1.3
+
+      - name: Write the practice conversations
+        run: |
+          mkdir -p work
+          python3 tools/talk_corpus.py work/corpus.txt 60000
+
+      - name: Train, reporting progress as it goes
+        run: |
+          MINUTES="${{ github.event.inputs.minutes || '30' }}"
+          case "$MINUTES" in ''|*[!0-9]*) MINUTES=30 ;; esac
+          [ "$MINUTES" -gt 75 ] && MINUTES=75
+          [ "$MINUTES" -lt 2 ] && MINUTES=2
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git worktree add --detach status-tree HEAD
+          (cd status-tree && git checkout -q --orphan status-talk-report && git rm -rfq . )
+          FIRST=1
+          publish() {
+            [ -f "$1" ] || return 0
+            cp "$1" status-tree/talk.json
+            (
+              cd status-tree
+              git add talk.json
+              if [ "$FIRST" = 1 ]; then git commit -qm "Talk training progress"; else git commit -q --amend -m "Talk training progress"; fi
+              git push -qf origin HEAD:status-talk
+            ) && FIRST=0 || echo "(couldn't publish progress this time)"
+          }
+
+          TRAIN_MINUTES="$MINUTES" python3 -u tools/train_talk.py work/corpus.txt work &
+          TRAINER=$!
+          while kill -0 "$TRAINER" 2>/dev/null; do
+            sleep 30
+            publish work/talk_progress.json
+          done
+          wait "$TRAINER"
+          publish work/talk_training.json
+          ls -l work
+
+      - name: Check the C code gives the same answers as the trained model
+        run: |
+          mkdir -p work/gen && cp work/talk_model.h work/gen/
+          gcc -O2 -Wall -DTALK_TOOLS -DTALK_KV_FLOAT -IFish -Iwork/gen tools/talk_test.c Fish/fish_talk.c Fish/fish_sim.c -lm -o work/talk_exact
+          gcc -O2 -Wall -DTALK_TOOLS -IFish -Iwork/gen tools/talk_test.c Fish/fish_talk.c Fish/fish_sim.c -lm -o work/talk_board
+          work/talk_exact work/talk_reference.txt
+          work/talk_board work/talk_reference.txt
+
+      - name: Keep the model for the build
+        run: |
+          gh release view fish-talk >/dev/null 2>&1 || \
+            gh release create fish-talk --title "Fish talk model" \
+              --notes "The animals' language model, trained on GitHub: talk_model.h (for the board and the website) and the training summary. Replaced by every training run."
+          gh release upload fish-talk work/talk_model.h work/talk_training.json --clobber

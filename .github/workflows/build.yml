@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  workflow_run:  # rebuild with the new brains whenever a training run finishes
-    workflows: ["Train fish brains"]
+  workflow_run:  # rebuild with the new brains (or talk model) whenever a training run finishes
+    workflows: ["Train fish brains", "Train fish talk"]
     types: [completed]
 
 permissions:
@@ -51,6 +51,22 @@ jobs:
             fi
           else
             echo "No trained brains yet: training some in this build"
+          fi
+
+      - name: Get the trained talk model
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The "Train fish talk" workflow keeps its model in a release. Without one (or with
+          # one in an older layout), the build uses a stand-in and the animals stay quiet.
+          mkdir -p build/gen
+          if gh release download fish-talk -p talk_model.h -p talk_training.json -D build/gen --clobber \
+             && grep -q "define TALK_FORMAT 1$" build/gen/talk_model.h; then
+            echo "Using the trained talk model"
+          else
+            echo "No usable talk model yet: the animals will stay quiet"
+            rm -f build/gen/talk_model.h build/gen/talk_training.json
           fi
 
       - name: Compile every program
