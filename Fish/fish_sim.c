@@ -6,7 +6,7 @@
 #define WALL_ZONE  40.0f  // nearer than this to a wall, it senses the wall
 #define EDGE       6.0f   // fish can't go closer to the glass than this
 #define TURN_RATE  0.18f  // sharpest turn per tick
-#define DRAIN      0.0006f // energy used per tick by an average-sized fish
+#define DRAIN      0.0005f // energy used per tick by an average-sized fish
 #define MEAL       0.35f   // energy from one pellet
 
 // Eating each other
@@ -326,7 +326,7 @@ static void try_bite(Tank *t, int i) {
   me->size = clamp(me->size + 0.03f, 0.0f, me->max_size);
   me->bites++;
   me->bite_wait = BITE_REST;
-  me->score += 5.0f;
+  me->score += 8.0f;
 
   // Nobody forgets a bite: the victim, anyone who saw it, and above all the victim's friends.
   feel(t, target, i, -0.6f);
@@ -341,7 +341,7 @@ static void try_bite(Tank *t, int i) {
     me->energy = 1.0f;
     me->size = clamp(me->size + 0.1f, 0.0f, me->max_size);
     me->kills++;
-    me->score += 10.0f;
+    me->score += 20.0f; // a successful hunt pays well, or evolution breeds fish that never hunt
   }
 }
 
