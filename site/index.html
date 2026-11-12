@@ -640,11 +640,12 @@ async function loadPublished() {
         "tanks; each generation, the best quarter have children with small random changes. This build ran " +
         s.fish.generations.toLocaleString() + " generations in " + s.fish.seconds + " seconds. " +
         "The score rewards eating, hunting and schooling, and punishes starving, being eaten and bumping walls. " +
-        "It jumps about because every tank is a different random mix of fish.";
+        "It jumps about because every tank is a different random mix of fish." +
+        (s.fish.kept_instincts ? " This time the trained brains did not beat the starting instincts in the final test, so the fish are using the instincts (with small differences between them)." : "");
       const body = $("training");
       body.replaceChildren();
       const one = (v) => (typeof v === "number" ? v.toFixed(1) : "–");
-      for (const [label, m] of [["Hand-written instincts", s.fish.instinct], ["Trained brains", s.fish.trained]]) {
+      for (const [label, m] of [["Hand-written instincts", s.fish.instinct], [s.fish.kept_instincts ? "Brains in use (instincts)" : "Trained brains", s.fish.trained]]) {
         const row = el("tr");
         row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", one(m.eaten_fish), "num"),
                    el("td", one(m.starved), "num"), el("td", m.score.toFixed(1), "num"));

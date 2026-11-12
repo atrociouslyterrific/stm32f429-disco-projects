@@ -130,28 +130,34 @@ int main(int argc, char **argv) {
   long seconds = (long)(time(NULL) - start);
   printf("trained for %d generations in %ld s\n", generation, seconds);
 
-  // Pick 10 for the board: the best one, then whichever of the top 32 is most unlike
-  // those already picked, so the fish have different characters.
-  int chosen[N_FISH], n_chosen = 1;
-  chosen[0] = ranked[0];
-  while (n_chosen < N_FISH) {
-    int pick = -1;
-    float pick_gap = -1.0f;
-    for (int c = 1; c < 32; c++) {
-      int cand = ranked[c], taken = 0;
-      float gap = 1e30f;
-      for (int k = 0; k < n_chosen; k++) {
-        if (chosen[k] == cand) taken = 1;
-        float d = 0;
-        for (int w = 0; w < N_WEIGHTS; w++) {
-          float diff = pop[cand].w[w] - pop[chosen[k]].w[w];
-          d += diff * diff;
-        }
-        if (d < gap) gap = d;
-      }
-      if (!taken && gap > pick_gap) { pick_gap = gap; pick = cand; }
+  // Pick 10 for the board. One generation's score is partly luck (which tank a brain landed
+  // in), so the top 30 sit a longer final exam: ten more tries each, in tanks made up of
+  // finalists only. The 10 with the best exam results go to the board.
+  enum { FINALISTS = 30, EXAM_ROUNDS = 10 };
+  static float exam[FINALISTS];
+  int seat[FINALISTS], chosen[N_FISH];
+  for (int f = 0; f < FINALISTS; f++) exam[f] = 0.0f;
+  for (int r = 0; r < EXAM_ROUNDS; r++) {
+    for (int f = 0; f < FINALISTS; f++) seat[f] = f;
+    for (int f = FINALISTS - 1; f > 0; f--) {
+      int q = (int)(rng_next(&rng) % (uint32_t)(f + 1));
+      int tmp = seat[f]; seat[f] = seat[q]; seat[q] = tmp;
     }
-    chosen[n_chosen++] = pick;
+    for (int tk = 0; tk < FINALISTS / N_FISH; tk++) {
+      tank_init(&tank, rng_next(&rng));
+      for (int k = 0; k < N_FISH; k++) tank.fish[k].brain = pop[ranked[seat[tk * N_FISH + k]]];
+      for (int st = 0; st < STEPS; st++) live_one_tick();
+      for (int k = 0; k < N_FISH; k++) exam[seat[tk * N_FISH + k]] += tank.fish[k].score;
+    }
+  }
+  for (int k = 0; k < N_FISH; k++) { // the ten best exam results
+    int best = -1;
+    for (int f = 0; f < FINALISTS; f++) {
+      int taken = 0;
+      for (int j = 0; j < k; j++) if (chosen[j] == ranked[f]) taken = 1;
+      if (!taken && (best < 0 || exam[f] > exam[best])) best = f;
+    }
+    chosen[k] = ranked[best];
   }
 
   Brain before[N_FISH], after[N_FISH];
@@ -159,10 +165,21 @@ int main(int argc, char **argv) {
   Result r_before = measure("instincts only:", before);
   Result r_after = measure("trained brains:", after);
 
+  // Training is not allowed to make the fish worse. If the trained brains don't beat the
+  // hand-written instincts, the board gets the instincts instead, each with a small random
+  // difference so the fish still aren't identical.
+  int kept_instincts = r_after.score < r_before.score;
+  if (kept_instincts) {
+    printf("training did not beat the instincts this time: using the instincts\n");
+    after[0] = instinct;
+    for (int k = 1; k < N_FISH; k++) brain_child(&after[k], &instinct, &rng, 0.04f);
+    r_after = measure("brains used:", after);
+  }
+
   if (argc > 2) {
     FILE *js = fopen(argv[2], "w");
     if (!js) { perror(argv[2]); return 1; }
-    fprintf(js, "{\"generations\": %d, \"seconds\": %ld,\n", generation, seconds);
+    fprintf(js, "{\"generations\": %d, \"seconds\": %ld, \"kept_instincts\": %d,\n", generation, seconds, kept_instincts);
     // Progress, thinned to about 150 points. Each point is the average over a small
     // window of generations, because one generation on its own is very jumpy.
     int window = generation / 150 + 1;
