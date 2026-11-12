@@ -21,10 +21,10 @@ static const float STAGE_SIZE[N_STAGES]  = {0.9f, 1.25f, 1.6f, 2.0f, 2.4f};  // 
 
 // Hunting and fighting
 #define PREY_RATIO  0.8f // a fish can hunt one whose power is below this fraction of its own
-#define BITE_HUNGER 0.5f // ...but only when its energy is below this (full fish don't hunt)
+#define BITE_HUNGER 0.55f // ...but only when its energy is below this (full fish don't hunt)
 #define FRIEND      0.3f // nobody attacks a fish it likes this much
 #define ENEMY      -0.3f // a fish it dislikes this much, it will fight whatever its size
-#define BITE_DAMAGE 0.3f
+#define BITE_DAMAGE 0.35f
 #define BITE_REST   60   // ticks between bites
 #define NEWBORN_SAFE 300 // ticks a newborn can't be attacked
 #define LUNGE       1.4f  // a hunting fish with prey in sight swims this much faster...
@@ -140,6 +140,8 @@ void fish_random_genes(Fish *f, uint32_t *rng) {
 }
 
 float fish_power(const Fish *f) { return f->size * (1.0f + 0.2f * (float)f->stage); }
+float fish_max_health(const Fish *f) { return 0.5f + 0.5f * f->size; }            // 0.85 for a baby, 1.7 for the biggest
+float fish_bite(const Fish *f) { return f->size * (1.0f + 0.1f * (float)f->stage); } // how hard it bites
 
 static void place(Fish *f, uint32_t *rng) {
   f->x = 20.0f + rng_unit(rng) * (TANK_W - 40.0f);
@@ -156,10 +158,10 @@ void tank_rebirth(Tank *t, int i) {
   Fish *f = &t->fish[i];
   place(f, &t->rng);
   f->energy = 0.6f;
-  f->health = 1.0f;
   f->stage = 0;
   f->growth = 0.0f;
   f->size = BABY_SIZE;
+  f->health = fish_max_health(f);
   f->max_size = STAGE_SIZE[0];
   f->age = 0;
   f->bite_wait = 0;
@@ -226,6 +228,7 @@ void tank_init(Tank *t, uint32_t seed) {
     f->growth = STAGE_NEEDS[f->stage];
     f->max_size = STAGE_SIZE[f->stage];
     f->size = f->max_size - 0.2f * rng_unit(&t->rng);
+    f->health = fish_max_health(f);
     f->energy = 0.6f + 0.4f * rng_unit(&t->rng);
     f->age = NEWBORN_SAFE;
     f->score = 0.0f;
@@ -361,7 +364,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   in[S_WALL_RIGHT] = wx * rx + wy * ry;
 
   in[S_HUNGER] = 1.0f - me->energy;
-  in[S_HURT] = 1.0f - me->health;
+  in[S_HURT] = 1.0f - me->health / fish_max_health(me);
   in[S_ALWAYS_ON] = 1.0f;
 }
 
@@ -397,7 +400,7 @@ static void fed(Tank *t, int i, float points, float size_gain) {
   while (f->stage < N_STAGES - 1 && f->growth >= STAGE_NEEDS[f->stage + 1]) {
     f->stage++;
     f->max_size = STAGE_SIZE[f->stage];
-    f->health = 1.0f; // evolving heals
+    f->health = fish_max_health(f); // evolving heals
     f->score += 5.0f;
     note(t, EV_EVOLVED, i, f->stage);
   }
@@ -448,12 +451,15 @@ static void try_bite(Tank *t, int i) {
 
   Fish *other = &t->fish[target];
   float edge = clamp(my_power / fish_power(other), 0.5f, 1.6f); // how much stronger I am
+  // The bigger the fish, the harder it bites. (And the bigger the fish being bitten,
+  // the more health it has to lose.)
+  const float my_bite = BITE_DAMAGE * fish_bite(me), its_bite = BITE_DAMAGE * fish_bite(other);
   me->bites++;
   me->bite_wait = BITE_REST;
 
   if (target_is_prey) {
     // Hunting: the prey is hurt, the hunter is fed.
-    other->health -= BITE_DAMAGE * edge;
+    other->health -= my_bite;
     other->score -= 5.0f;
     me->energy = clamp(me->energy + 0.3f, 0.0f, 1.0f);
     me->score += 8.0f;
@@ -461,8 +467,8 @@ static void try_bite(Tank *t, int i) {
     if (other->health > 0.0f) note(t, EV_BIT, i, target);
   } else {
     // A fight between enemies: both get hurt, the stronger one less.
-    other->health -= BITE_DAMAGE * 0.6f * edge;
-    me->health -= BITE_DAMAGE * 0.4f / edge;
+    other->health -= my_bite * 0.7f;
+    me->health -= its_bite * 0.5f; // it bites back
     other->bite_wait = BITE_REST;
     me->score += 2.0f * edge - 2.0f; // worth it only against someone weaker
     feel(t, i, target, -0.2f);
@@ -502,7 +508,7 @@ static void tend_plants(Tank *t) {
     if (t->step % 15 == (uint32_t)p && plant->height > 0.35f && pellets < N_FOOD - 2 &&
         rng_unit(&t->rng) < 0.3f * plant->height) {
       float x = plant->x + (rng_unit(&t->rng) - 0.5f) * 36.0f;
-      float y = plant_top(plant) - 6.0f - rng_unit(&t->rng) * 80.0f;
+      float y = plant_top(plant) - 6.0f - rng_unit(&t->rng) * 150.0f; // food drifts well up into the water
       if (tank_add_food(t, x, y < 8.0f ? 8.0f : y) >= 0) {
         plant->height -= PLANT_SEED;
         t->nutrients -= 0.01f;
@@ -560,7 +566,7 @@ void tank_step(Tank *t) {
     // big fish and hurt fish are a little slower. A hungry fish that has decided to
     // bite and can see prey lunges, which is what lets a big fish catch a small one.
     int hunting = bite[i] > 0.0f && f->energy < BITE_HUNGER && sees_prey[i];
-    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->pace * (1.1f - 0.1f * f->size) * (0.7f + 0.3f * f->health);
+    float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->pace * (1.1f - 0.1f * f->size) * (0.7f + 0.3f * f->health / fish_max_health(f));
     if (hunting) wanted *= LUNGE;
     f->speed += (wanted - f->speed) * 0.1f;
     f->x += f->dx * f->speed;
@@ -615,11 +621,12 @@ void tank_step(Tank *t) {
   for (int i = 0; i < N_FISH; i++) {
     Fish *f = &t->fish[i];
     if (f->dead) continue;
+    const float most = fish_max_health(f);
     if (f->energy <= 0.0f) {
-      f->health -= 0.002f;
+      f->health -= 0.002f * most;
       if (f->health <= 0.0f) die(t, i, NOBODY);
-    } else if (f->energy > 0.4f && f->health < 1.0f) {
-      f->health = clamp(f->health + 0.001f, 0.0f, 1.0f);
+    } else if (f->energy > 0.4f && f->health < most) {
+      f->health = clamp(f->health + 0.001f * most, 0.0f, most);
     }
   }
 

@@ -100,6 +100,7 @@ void lcd_init(void) {
 
   // SPI5: we are in charge of the clock, 8 bits at a time. Its speed is the chip's speed
   // divided down: 16 MHz / 2 = 8 MHz normally, 84 MHz / 4 = 21 MHz after board_fast_clock.
+  // (SPI5 sits on the half-speed bus, so its starting point is 84 MHz when the chip runs at 168.)
   uint32_t divide_by_4 = cpu_hz > 16000000u ? (1u << 3) : 0;
   SPI5_CR1 = (1u << 2) | (1u << 8) | (1u << 9) | divide_by_4;
   SPI5_CR1 |= 1u << 6;

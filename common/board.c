@@ -10,6 +10,7 @@
 #define SYST_CVR REG(0xE000E018)
 
 uint32_t cpu_hz = 16000000u; // after power-on the chip runs from its internal 16 MHz clock
+uint32_t slow_bus_hz = 16000000u;
 
 #define RCC_CR      REG(0x40023800)
 #define RCC_PLLCFGR REG(0x40023804)
@@ -17,18 +18,20 @@ uint32_t cpu_hz = 16000000u; // after power-on the chip runs from its internal 1
 #define FLASH_ACR   REG(0x40023C00)
 
 // The chip has a clock multiplier (the "PLL"). This feeds it the internal 16 MHz clock
-// and asks for 16 / 16 * 336 / 4 = 84 MHz.
+// and asks for 16 / 16 * 336 / 2 = 168 MHz, the chip's normal top speed.
 void board_fast_clock(void) {
-  // Reading program memory takes longer than one tick at this speed: allow 2 extra,
+  // Reading program memory takes longer than one tick at this speed: allow 5 extra,
   // and switch on the memory's read-ahead and caches.
-  FLASH_ACR = 2u | (1u << 8) | (1u << 9) | (1u << 10);
-  RCC_PLLCFGR = 16u | (336u << 6) | (1u << 16) | (7u << 24);
+  FLASH_ACR = 5u | (1u << 8) | (1u << 9) | (1u << 10);
+  RCC_PLLCFGR = 16u | (336u << 6) | (0u << 16) | (7u << 24);
   RCC_CR |= 1u << 24;                 // start the multiplier
   while (!(RCC_CR & (1u << 25))) {}   // wait until it is steady
-  // Slower parts of the chip (I2C among them) get half speed: 42 MHz.
-  RCC_CFGR = (RCC_CFGR & ~((7u << 10) | (7u << 13) | (0xFu << 4) | 3u)) | (4u << 10) | 2u;
+  // Parts of the chip that can't keep up get a divided clock: the screen's SPI link is on
+  // a half-speed bus (84 MHz), I2C on a quarter-speed one (42 MHz).
+  RCC_CFGR = (RCC_CFGR & ~((7u << 10) | (7u << 13) | (0xFu << 4) | 3u)) | (5u << 10) | (4u << 13) | 2u;
   while ((RCC_CFGR & (3u << 2)) != (2u << 2)) {} // wait for the switch-over
-  cpu_hz = 84000000u;
+  cpu_hz = 168000000u;
+  slow_bus_hz = 42000000u;
 }
 
 void delay_ms(uint32_t ms) {

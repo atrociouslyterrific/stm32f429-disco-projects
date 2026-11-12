@@ -96,8 +96,9 @@
   .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
   .dot.empty { border: 1px dashed var(--muted); background: none !important; }
   .meter { display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); font-size: .76rem; }
-  .meter .trackbar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
-  .meter .fill { height: 100%; border-radius: 3px; }
+  .meter .trackbar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; position: relative; }
+  .meter .cap { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; background: var(--health); opacity: .28; }
+  .meter .fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px; }
   .feel { display: flex; gap: 12px; margin-top: 6px; color: var(--muted); font-size: .76rem; align-items: center; }
   .feel span { display: inline-flex; align-items: center; gap: 4px; }
   .key { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; color: var(--muted); font-size: .82rem; }
@@ -202,7 +203,7 @@
     </div>
     <div class="roster" id="roster"></div>
     <div class="key">
-      <span><i style="background:var(--health)"></i>Health</span>
+      <span><i style="background:var(--health)"></i>Health (bigger fish have a longer bar; the faint part is room to heal)</span>
       <span><i style="background:var(--hunger)"></i>Hunger (fuller bar = hungrier)</span>
       <span>+ best friend</span><span>− worst enemy</span><span>A fish flashes red when hurt</span>
     </div>
@@ -212,6 +213,7 @@
         <li><strong>Plants</strong> grow on the seafloor, faster when the water is rich. Grown plants release food. The two smallest species also nibble the plants.</li>
         <li><strong>Evolving:</strong> eating earns meal points. Enough of them and a fish evolves into the next species: Fry → Darter → Striper → Hunter → Titan. Each is bigger and stronger, with a new shape.</li>
         <li><strong>Hunting:</strong> a hungry fish hunts clearly weaker fish. <strong>Fighting:</strong> enemies attack each other whatever their size, and both get hurt.</li>
+        <li><strong>Size matters:</strong> the bigger a fish, the harder it bites and the more health it has. Small fish bite weakly and die easily.</li>
         <li><strong>Relationships:</strong> swimming together builds friendship; crowding, stealing food and attacks make enemies. Friends never attack each other.</li>
         <li><strong>The cycle:</strong> when a fish dies, what's left enriches the water, which grows the plants, which feed the fish. The fish doing best has a baby in its place, with a slightly changed brain.</li>
       </ul>
@@ -761,7 +763,9 @@ async function startTank() {
   // What is on screen right now: the numbers (laid out as in fish_view.h), each fish's looks,
   // and how many frames of red "ouch" flash each has left.
   let look, flash, lastHealth, nextName, cards, paused = false, ticks = 0, logEmpty = true;
-  let board = null; // when showing a real board: { s, look, flash }
+  let board = null; // when showing a real board: { s, look, flash, prev, at, gap }
+  let before = null; // the browser tank's numbers one tick ago, for drawing in-between frames
+  const HEALTH_LIMIT = 1.7; // the most health any fish can have (as in fish_sim.h)
 
   const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
   const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
@@ -817,15 +821,18 @@ async function startTank() {
       top.append(dot, who);
       const extra = el("div", "", "extra");
       const meter = (label, color) => {
-        const row = el("div", undefined, "meter"), track = el("div", undefined, "trackbar"), fill = el("div", undefined, "fill");
+        const row = el("div", undefined, "meter"), track = el("div", undefined, "trackbar");
+        const cap = el("div", undefined, "cap"), fill = el("div", undefined, "fill");
         fill.style.background = color;
-        track.append(fill);
+        cap.style.width = "0";
+        track.append(cap, fill);
         row.append(el("span", label), track);
         card.append(row);
-        return fill;
+        return { fill, cap };
       };
       card.append(top, extra);
-      const health = meter("Health", "var(--health)"), hunger = meter("Hunger", "var(--hunger)");
+      const healthBar = meter("Health", "var(--health)"), hunger = meter("Hunger", "var(--hunger)").fill;
+      const health = healthBar.fill, healthCap = healthBar.cap;
       const feel = el("div", undefined, "feel");
       const friend = el("span", undefined, "dot"), enemy = el("span", undefined, "dot");
       const a = el("span"), b = el("span");
@@ -834,7 +841,7 @@ async function startTank() {
       feel.append(a, b);
       card.append(feel);
       roster.append(card);
-      cards.push({ dot, who, extra, health, hunger, friend, enemy });
+      cards.push({ dot, who, extra, health, healthCap, hunger, friend, enemy });
     }
   }
 
@@ -858,8 +865,9 @@ async function startTank() {
     nextName = 0;
     ticks = 0;
     for (let i = 0; i < N; i++) look.push({ tint: STARTING_TINTS[i % STARTING_TINTS.length].slice(), marking: i % 3, name: NAMES[nextName++ % NAMES.length] });
-    lastHealth = new Array(N).fill(1);
+    lastHealth = new Array(N).fill(HEALTH_LIMIT);
     flash = new Array(N).fill(0);
+    before = null;
     clearLog("Nothing yet. Give them a minute.");
   }
 
@@ -883,7 +891,7 @@ async function startTank() {
           marking: Math.random() < 0.125 ? Math.floor(Math.random() * 3) : look[b].marking,
           name: NAMES[nextName++ % NAMES.length],
         };
-        lastHealth[a] = 1;
+        lastHealth[a] = HEALTH_LIMIT;
         flash[a] = 0;
         logEvent("🐣", title(look[a].name) + " was born to " + B, clock());
       }
@@ -896,8 +904,10 @@ async function startTank() {
     }
   }
 
-  // Draw one tank from its numbers and looks.
-  function draw(s, looks, flashing) {
+  // Draw one tank from its numbers and looks. The rules only move the fish 30 times a
+  // second (and a board reports about 10 times a second), so each fish is drawn part-way
+  // between where it was (`was`) and where it is (`s`); `blend` says how far along.
+  function draw(was, s, blend, looks, flashing) {
     const k = canvas.width / TANK_W;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(scenery, 0, 0);
@@ -926,7 +936,14 @@ async function startTank() {
     ctx.textAlign = "center";
     for (let i = 0; i < N; i++) {
       const o = FISH_AT + i * PER;
-      const x = s[o], y = s[o + 1], dx = s[o + 2], dy = s[o + 3], size = s[o + 4], slim = s[o + 5], energy = s[o + 6];
+      let x = s[o], y = s[o + 1], dx = s[o + 2], dy = s[o + 3];
+      if (was && Math.abs(x - was[o]) < 14 && Math.abs(y - was[o + 1]) < 14) { // (a newborn elsewhere doesn't glide across)
+        x = was[o] + (x - was[o]) * blend;
+        y = was[o + 1] + (y - was[o + 1]) * blend;
+        dx = was[o + 2] + (dx - was[o + 2]) * blend;
+        dy = was[o + 3] + (dy - was[o + 3]) * blend;
+      }
+      const size = s[o + 4], slim = s[o + 5], energy = s[o + 6];
       const stage = Math.round(s[o + 12]);
       const tint = flashing[i] ? [255, 40, 40] : looks[i].tint, g = flashing[i] ? 1 : 0.45 + 0.55 * energy;
       ctx.save();
@@ -973,9 +990,11 @@ async function startTank() {
       const stage = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 12])));
       c.dot.style.background = rgb(looks[i].tint, 1);
       c.who.textContent = looks[i].name;
-      c.extra.textContent = SPECIES[stage] + " (level " + (stage + 1) + ")" + (kills ? " · ate " + kills : "");
-      c.health.style.width = Math.round(Math.max(0, health) * 100) + "%";
-      c.health.style.background = health < 0.35 ? "var(--health-low)" : "var(--health)";
+      c.extra.textContent = SPECIES[stage] + " (level " + (stage + 1) + ") · size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
+      const most = s[o + 14] || 1;
+      c.health.style.width = Math.round(Math.max(0, health) / HEALTH_LIMIT * 100) + "%";
+      c.healthCap.style.width = Math.round(most / HEALTH_LIMIT * 100) + "%";
+      c.health.style.background = health < 0.35 * most ? "var(--health-low)" : "var(--health)";
       c.hunger.style.width = Math.round(hunger * 100) + "%";
       let best = -1, worst = -1, bestLike = 0.15, worstLike = -0.15;
       for (let j = 0; j < N; j++) {
@@ -1000,11 +1019,13 @@ async function startTank() {
     if (!board && !paused) {
       owed += dt;
       let did = 0;
-      while (owed >= 1000 / 30 && did < 4) { step(); owed -= 1000 / 30; did++; }
+      while (owed >= 1000 / 30 && did < 4) { before = simState().slice(); step(); owed -= 1000 / 30; did++; }
       if (did === 4) owed = 0;
     }
     const s = board ? board.s : simState(), looks = board ? board.look : look, flashing = board ? board.flash : flash;
-    draw(s, looks, flashing);
+    const was = board ? board.prev : before;
+    const blend = board ? Math.min(1, (now - board.at) / board.gap) : (paused ? 1 : Math.min(1, owed / (1000 / 30)));
+    draw(was, s, blend, looks, flashing);
     sinceRoster += dt;
     if (sinceRoster > 250) { updateRoster(s, looks); sinceRoster = 0; }
     requestAnimationFrame(frame);
@@ -1025,7 +1046,11 @@ async function startTank() {
     layout: { N, VIEW },
     feedBoard: null, // set while a board is showing: (x, y) => drops food on the board
     showBoard(snapshot) { // { s, look, flash }
+      const now = performance.now();
       if (!board) { clearLog("Waiting for something to happen on the board…"); }
+      snapshot.prev = board ? board.s : null;
+      snapshot.gap = board ? Math.min(400, Math.max(30, now - board.at)) : 100; // how long between reports
+      snapshot.at = now;
       board = snapshot;
       setMode();
     },

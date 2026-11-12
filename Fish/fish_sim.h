@@ -42,7 +42,8 @@ typedef struct {
   float dx, dy;   // which way it faces (a direction of length 1)
   float speed;
   float energy;   // 1 = full, 0 = empty. Hunger is 1 - energy.
-  float health;   // 1 = fine, 0 = dead. Falls when starving or bitten, heals when well fed.
+  float health;   // 0 = dead. How much it can have depends on its size (see fish_max_health):
+                  // bigger fish take more killing. Falls when starving or bitten, heals when fed.
   float size;     // how big it is right now (1 = average). The more it eats, the bigger it gets.
   float growth;   // "meal points" earned by eating; enough of them and it evolves
   float max_size; // the biggest its current species can be
@@ -118,6 +119,9 @@ void brain_child(Brain *child, const Brain *parent, uint32_t *rng, float amount)
 
 void fish_random_genes(Fish *fish, uint32_t *rng);
 float fish_power(const Fish *fish); // how strong it is in a fight: size and species both count
+float fish_max_health(const Fish *fish); // bigger fish have more health...
+float fish_bite(const Fish *fish);       // ...and a harder bite; smaller fish, less of both
+#define HEALTH_LIMIT 1.7f // the most health any fish can have (a full-grown Titan)
 void tank_init(Tank *tank, uint32_t seed);
 int tank_drop_food(Tank *tank);                   // at a random spot; returns the slot or -1
 int tank_add_food(Tank *tank, float x, float y);  // at a chosen spot

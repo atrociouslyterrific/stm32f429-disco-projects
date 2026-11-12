@@ -55,7 +55,7 @@ static int wait_for(uint32_t flag) {
 }
 
 static void i2c_setup(void) {
-  uint32_t bus_mhz = (cpu_hz > 16000000u ? cpu_hz / 2 : cpu_hz) / 1000000u; // 16 or 42
+  uint32_t bus_mhz = slow_bus_hz / 1000000u; // 16 or 42
   I2C3_CR1 = CR1_SWRST;
   I2C3_CR1 = 0;
   I2C3_CR2 = bus_mhz;

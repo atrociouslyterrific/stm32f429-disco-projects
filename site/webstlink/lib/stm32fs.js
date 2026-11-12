@@ -148,19 +148,26 @@ class Flash {
     }
 
     async unlock() {
-        await this._driver.core_reset_halt();
-        // programming locked
-        let cr_reg = await this._stlink.get_debugreg32(FLASH_CR_REG);
-        if (cr_reg & FLASH_CR_LOCK_BIT) {
-            // unlock keys
-            await this._stlink.set_debugreg32(FLASH_KEYR_REG, 0x45670123);
-            await this._stlink.set_debugreg32(FLASH_KEYR_REG, 0xcdef89ab);
+        // Changed from upstream webstlink: the original read the lock flag immediately after
+        // asking for a reset. If the chip was still mid-reset the read came back empty, the
+        // unlock keys were skipped, and it failed with "Error unlocking FLASH". Now it gives
+        // the reset time to finish, always sends the keys when locked, and tries a few times.
+        for (let attempt = 0; attempt < 4; attempt++) {
+            await this._driver.core_reset_halt();
+            await async_sleep(0.05 + 0.1 * attempt);
+            let cr_reg = await this._stlink.get_debugreg32(FLASH_CR_REG);
+            if (cr_reg & FLASH_CR_LOCK_BIT) {
+                // unlock keys
+                await this._stlink.set_debugreg32(FLASH_KEYR_REG, 0x45670123);
+                await this._stlink.set_debugreg32(FLASH_KEYR_REG, 0xcdef89ab);
+                await async_sleep(0.01);
+            }
+            cr_reg = await this._stlink.get_debugreg32(FLASH_CR_REG);
+            if (!(cr_reg & FLASH_CR_LOCK_BIT)) {
+                return;
+            }
         }
-        cr_reg = await this._stlink.get_debugreg32(FLASH_CR_REG);
-        // programming locked
-        if (cr_reg & FLASH_CR_LOCK_BIT) {
-            throw new Exception("Error unlocking FLASH");
-        }
+        throw new Exception("Error unlocking FLASH");
     }
 
     async lock() {

@@ -9,7 +9,8 @@
 
 // How fast the chip is running, in ticks per second. 16 million after power-on.
 extern uint32_t cpu_hz;
-// Speed the chip up to 84 million ticks per second. Call it first thing, before lcd_init.
+extern uint32_t slow_bus_hz; // the speed given to the slower parts of the chip (I2C among them)
+// Speed the chip up to 168 million ticks per second. Call it first thing, before lcd_init.
 // Needed for programs that redraw a lot of the screen many times a second.
 void board_fast_clock(void);
 

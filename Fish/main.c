@@ -87,6 +87,11 @@ typedef struct { int x0, y0, x1, y1; } Rect;
 
 // What is needed to draw each fish this frame, and to wipe where it was last frame.
 static struct {
+  // The rules move the fish 30 times a second, but the screen is redrawn as often as the
+  // chip can manage. In between, each fish is drawn part-way from where it was at the
+  // last tick (old_...) to where it is now, which is what makes the movement smooth.
+  float x, y, dx, dy;                 // where it is drawn this frame
+  float old_x, old_y, old_dx, old_dy; // where it was one tick ago
   float stretch_u, stretch_v; // turn screen distances into "standard fish" distances
   uint16_t paint[4];          // body, eye, tail and fins, marking
   int tag_x, tag_y;           // where the nametag goes
@@ -98,7 +103,7 @@ static struct {
 static struct { int x, y, shown; } crumb[N_FOOD];
 
 // What each fish's box in the panel currently shows, so only changes get redrawn.
-static struct { int ready, health, hunger, friend_of, enemy_of, stage; } box[N_FISH];
+static struct { int ready, health, most, hunger, friend_of, enemy_of, stage; } box[N_FISH];
 
 static char log_text[LOG_LINES][LOG_CHARS + 1];
 static int log_changed;
@@ -297,15 +302,33 @@ static inline int tag_color(int i, int px, int py) {
   return -1;
 }
 
-// Work out how fish i should be drawn this frame: its size and shape, where its nametag
-// goes, and its colours (its own tint, fading towards grey as it gets hungry, flashing
-// red when hurt).
-static void prepare(int i) {
+// Once per tick of the rules: notice a fish being hurt (it flashes red for a moment).
+static void after_tick(int i) {
   const Fish *f = &tank.fish[i];
+  if (f->health < art[i].last_health - 0.15f) art[i].flash = 8;
+  else if (art[i].flash) art[i].flash--;
+  art[i].last_health = f->health;
+}
+
+// Work out how fish i should be drawn this frame: where exactly (blend = 0 is where it was
+// at the last tick, 1 is where it is now), its size and shape, where its nametag goes, and
+// its colours (its own tint, fading towards grey as it gets hungry, red when hurt).
+static void prepare(int i, float blend) {
+  const Fish *f = &tank.fish[i];
+  float jump_x = f->x - art[i].old_x, jump_y = f->y - art[i].old_y;
+  if (jump_x > 8.0f || jump_x < -8.0f || jump_y > 8.0f || jump_y < -8.0f) blend = 1.0f; // a newborn elsewhere: no gliding across
+  art[i].x = art[i].old_x + jump_x * blend;
+  art[i].y = art[i].old_y + jump_y * blend;
+  float hx = art[i].old_dx + (f->dx - art[i].old_dx) * blend, hy = art[i].old_dy + (f->dy - art[i].old_dy) * blend;
+  float len = __builtin_sqrtf(hx * hx + hy * hy);
+  if (len < 0.01f) { hx = f->dx; hy = f->dy; len = 1.0f; } // it turned right round: just snap
+  art[i].dx = hx / len;
+  art[i].dy = hy / len;
+
   art[i].stretch_u = 1.0f / (f->size * f->slim);
   art[i].stretch_v = f->slim / f->size;
 
-  int cx = (int)f->x, cy = (int)f->y;
+  int cx = (int)art[i].x, cy = (int)art[i].y;
   int reach = (int)(8.5f * f->size * f->slim) + 2; // the fish fits in a square this far around its middle
   // The nametag sits above the fish, or below it when the fish is at the top of the tank.
   int above = cy - reach - TAG_H - 1 >= 0;
@@ -316,12 +339,9 @@ static void prepare(int i) {
   if (art[i].tag_x + TAG_W - 1 > r.x1) r.x1 = art[i].tag_x + TAG_W - 1;
   art[i].now = r;
 
-  if (f->health < art[i].last_health - 0.15f) art[i].flash = 8;
-  art[i].last_health = f->health;
-
   float glow = 0.45f + 0.55f * f->energy;
   int red = (int)((float)look[i].tint[0] * glow), green = (int)((float)look[i].tint[1] * glow), blue = (int)((float)look[i].tint[2] * glow);
-  if (art[i].flash) { art[i].flash--; red = 255; green = 40; blue = 40; }
+  if (art[i].flash) { red = 255; green = 40; blue = 40; }
   art[i].paint[0] = RGB(red, green, blue);
   art[i].paint[1] = RGB(10, 10, 30);
   art[i].paint[2] = RGB(red * 2 / 3, green * 2 / 3, blue * 2 / 3);
@@ -333,7 +353,7 @@ static int overlap(Rect a, Rect b) { return a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0
 // Draw fish i and its nametag where they are now, wiping where they were, in one go
 // (so nothing flickers).
 static void draw_fish(int i) {
-  const Fish *f = &tank.fish[i];
+  const float fx = art[i].x, fy = art[i].y, fdx = art[i].dx, fdy = art[i].dy;
   Rect area = art[i].now, was = art[i].last;
 
   if (was.x0 > area.x1 + 4 || area.x0 > was.x1 + 4 || was.y0 > area.y1 + 4 || area.y0 > was.y1 + 4) {
@@ -353,21 +373,20 @@ static void draw_fish(int i) {
     if (j != i && overlap(area, art[j].now)) near[n_near++] = j;
 
   const float su = art[i].stretch_u, sv = art[i].stretch_v;
-  const float u_step = f->dx * su, v_step = -f->dy * sv; // one dot to the right on screen
+  const float u_step = fdx * su, v_step = -fdy * sv; // one dot to the right on screen
   lcd_area(area.x0, area.y0, area.x1 - area.x0 + 1, area.y1 - area.y0 + 1);
   for (int py = area.y0; py <= area.y1; py++) {
-    float ry = ((float)py + 0.5f) - f->y;
-    float rx = ((float)area.x0 + 0.5f) - f->x;
-    float u = (rx * f->dx + ry * f->dy) * su; // towards the nose
-    float v = (ry * f->dx - rx * f->dy) * sv; // towards its right
+    float ry = ((float)py + 0.5f) - fy;
+    float rx = ((float)area.x0 + 0.5f) - fx;
+    float u = (rx * fdx + ry * fdy) * su; // towards the nose
+    float v = (ry * fdx - rx * fdy) * sv; // towards its right
     for (int px = area.x0; px <= area.x1; px++) {
       int color = body_color(i, u, v);
       if (color < 0) color = tag_color(i, px, py);
       for (int k = 0; color < 0 && k < n_near; k++) {
         int j = near[k];
-        const Fish *o = &tank.fish[j];
-        float qx = ((float)px + 0.5f) - o->x, qy = ((float)py + 0.5f) - o->y;
-        color = body_color(j, (qx * o->dx + qy * o->dy) * art[j].stretch_u, (qy * o->dx - qx * o->dy) * art[j].stretch_v);
+        float qx = ((float)px + 0.5f) - art[j].x, qy = ((float)py + 0.5f) - art[j].y;
+        color = body_color(j, (qx * art[j].dx + qy * art[j].dy) * art[j].stretch_u, (qy * art[j].dx - qx * art[j].dy) * art[j].stretch_v);
         if (color < 0) color = tag_color(j, px, py);
       }
       lcd_push(color < 0 ? background(px, py) : (uint16_t)color);
@@ -411,9 +430,14 @@ static void swatch(int x, int y, int who) {
   }
 }
 
-static void bar(int x, int y, int filled, uint16_t color) {
+// A bar: `filled` dots in colour, then up to `room` dots in a dim colour (how full it could
+// be), then the empty track.
+static void bar(int x, int y, int filled, int room, uint16_t color, uint16_t dim) {
+  filled = clamp_int(filled, 0, BAR_W);
+  room = clamp_int(room, filled, BAR_W);
   if (filled > 0) lcd_fill_rect(x, y, filled, 4, color);
-  if (filled < BAR_W) lcd_fill_rect(x + filled, y, BAR_W - filled, 4, BAR_BG);
+  if (room > filled) lcd_fill_rect(x + filled, y, room - filled, 4, dim);
+  if (room < BAR_W) lcd_fill_rect(x + room, y, BAR_W - room, 4, BAR_BG);
 }
 
 // Bring fish i's box up to date, redrawing only what changed.
@@ -428,7 +452,7 @@ static void draw_box(int i) {
     lcd_text(x + 3, y + 23, "+", 1, WHITE, PANEL_BG);
     lcd_text(x + 25, y + 23, "-", 1, WHITE, PANEL_BG);
     box[i].ready = 1;
-    box[i].health = box[i].hunger = box[i].stage = -1;
+    box[i].health = box[i].most = box[i].hunger = box[i].stage = -1;
     box[i].friend_of = box[i].enemy_of = -2;
   }
 
@@ -437,14 +461,20 @@ static void draw_box(int i) {
     lcd_text(x + 38, y + 2, level, 1, YELLOW, PANEL_BG);
     box[i].stage = f->stage;
   }
-  int health = (int)(f->health * (float)BAR_W + 0.5f);
-  if (health != box[i].health) {
-    bar(x + 3, y + 12, health, f->health < 0.35f ? RGB(230, 60, 50) : RGB(70, 200, 90));
+  // Health: the whole bar is the most health any fish can have. The bright part is this
+  // fish's health now; the dim part is how much more it could have at its size. So a big
+  // fish has a long bar and a small one a short bar.
+  float most_health = fish_max_health(f);
+  int health = (int)(f->health / HEALTH_LIMIT * (float)BAR_W + 0.5f);
+  int most = (int)(most_health / HEALTH_LIMIT * (float)BAR_W + 0.5f);
+  if (health != box[i].health || most != box[i].most) {
+    bar(x + 3, y + 12, health, most, f->health < 0.35f * most_health ? RGB(230, 60, 50) : RGB(70, 200, 90), RGB(36, 78, 48));
     box[i].health = health;
+    box[i].most = most;
   }
   int hunger = (int)((1.0f - f->energy) * (float)BAR_W + 0.5f);
   if (hunger != box[i].hunger) {
-    bar(x + 3, y + 18, hunger, RGB(255, 150, 40));
+    bar(x + 3, y + 18, hunger, hunger, RGB(255, 150, 40), BAR_BG);
     box[i].hunger = hunger;
   }
 
@@ -523,6 +553,44 @@ static void mirror_update(void) {
   fish_mirror.seq_end = fish_mirror.seq;
 }
 
+// One tick of the tank: feeding, the rules, and whatever follows from them.
+static void one_tick(int has_touch, uint32_t ticks, int *button_was, int *touch_was, uint32_t *last_feed, uint32_t *web_feeds) {
+  // Feeding: the blue button drops food somewhere; a tap drops it right there;
+  // and the website can ask for some too.
+  int button = (int)(GPIOA_IDR & 1u);
+  if (button && !*button_was) {
+    tank.rng ^= SYST_CVR | 1u; // the moment you press makes the spot unpredictable
+    tank_drop_food(&tank);
+  }
+  *button_was = button;
+
+  int tx = 0, ty = 0;
+  int touching = has_touch && touch_read(&tx, &ty) && ty < TANK_ROWS;
+  if (touching && (!*touch_was || ticks - *last_feed >= 8)) { // hold to keep sprinkling
+    tank_add_food(&tank, (float)tx, (float)ty);
+    *last_feed = ticks;
+  }
+  *touch_was = touching;
+
+  if (fish_mirror.feed_count != *web_feeds) {
+    *web_feeds = fish_mirror.feed_count;
+    float x = fish_mirror.feed_x, y = fish_mirror.feed_y;
+    if (x >= 0.0f && x <= TANK_W && y >= 0.0f && y <= TANK_H) tank_add_food(&tank, x, y);
+  }
+
+  for (int i = 0; i < N_FISH; i++) { // remember where everyone was, for drawing in-between frames
+    art[i].old_x = tank.fish[i].x; art[i].old_y = tank.fish[i].y;
+    art[i].old_dx = tank.fish[i].dx; art[i].old_dy = tank.fish[i].dy;
+  }
+  tank_step(&tank);
+  for (int i = 0; i < N_FISH; i++) {
+    tank.fish[i].score *= 0.9995f; // old successes slowly count for less
+    if (tank.fish[i].dead) tank_replace(&tank, i); // the best fish has a baby in its place
+  }
+  for (int e = 0; e < tank.n_events; e++) report(&tank.events[e]);
+  for (int i = 0; i < N_FISH; i++) after_tick(i);
+}
+
 int main(void) {
   board_fast_clock();
   leds_init();
@@ -554,66 +622,55 @@ int main(void) {
     give_name(i);
     tint_changed(i);
     art[i].last_health = tank.fish[i].health;
-    prepare(i);
+    art[i].old_x = tank.fish[i].x; art[i].old_y = tank.fish[i].y;
+    art[i].old_dx = tank.fish[i].dx; art[i].old_dy = tank.fish[i].dy;
+    prepare(i, 1.0f);
     art[i].last = art[i].now;
   }
+  lcd_text(196, COUNT_Y, "FPS", 1, WHITE, BLACK);
   led_red(0);
 
-  // A free-running countdown, used to keep a steady 30 pictures a second.
-  const uint32_t frame_ticks = cpu_hz / 30;
+  // A free-running countdown, used to tell how much time has passed.
   SYST_RVR = 0xFFFFFF;
   SYST_CVR = 0;
   SYST_CSR = 5;
+  const uint32_t tick_len = cpu_hz / 30; // the rules move forward 30 times a second...
+  uint32_t clock_was = SYST_CVR, owed = tick_len, ticks = 0;
+  uint32_t frames = 0, frames_at_last_count = 0; // ...and the screen redraws as often as it can
 
-  uint32_t shown_fed = ~0u, shown_born = ~0u, shown_eaten = ~0u, frame = 0, last_feed = 0, web_feeds = 0;
+  uint32_t shown_fed = ~0u, shown_born = ~0u, shown_eaten = ~0u, last_feed = 0, web_feeds = 0;
   int button_was = 0, touch_was = 0;
   for (;;) {
-    uint32_t frame_start = SYST_CVR;
+    uint32_t clock_now = SYST_CVR;
+    owed += (clock_was - clock_now) & 0xFFFFFFu;
+    clock_was = clock_now;
+    if (owed > 3 * tick_len) owed = 3 * tick_len; // fell behind: don't try to catch up for ever
 
-    // Feeding: the blue button drops food somewhere; a tap drops it right there;
-    // and the website can ask for some too.
-    int button = (int)(GPIOA_IDR & 1u);
-    if (button && !button_was) {
-      tank.rng ^= SYST_CVR | 1u; // the moment you press makes the spot unpredictable
-      tank_drop_food(&tank);
+    while (owed >= tick_len) {
+      owed -= tick_len;
+      one_tick(has_touch, ticks, &button_was, &touch_was, &last_feed, &web_feeds);
+      ticks++;
+
+      draw_plants();
+      draw_box((int)(ticks % N_FISH)); // one fish's box per tick is plenty
+      if (log_changed) log_draw();
+      if (tank.total_eaten != shown_fed) { shown_fed = tank.total_eaten; show_number(26, shown_fed); }
+      if (born != shown_born) { shown_born = born; show_number(92, shown_born); }
+      if (tank.total_killed != shown_eaten) { shown_eaten = tank.total_killed; show_number(164, shown_eaten); }
+      if (ticks % 30 == 0) { // once a second: how many pictures were drawn in that second
+        char fps[3] = {(char)('0' + (frames - frames_at_last_count) / 10 % 10), (char)('0' + (frames - frames_at_last_count) % 10), 0};
+        lcd_text(218, COUNT_Y, fps, 1, YELLOW, BLACK);
+        frames_at_last_count = frames;
+      }
+      mirror_update();
+      led_green((int)((ticks / 15) & 1u)); // heartbeat
     }
-    button_was = button;
 
-    int tx = 0, ty = 0;
-    int touching = has_touch && touch_read(&tx, &ty) && ty < TANK_ROWS;
-    if (touching && (!touch_was || frame - last_feed >= 8)) { // hold to keep sprinkling
-      tank_add_food(&tank, (float)tx, (float)ty);
-      last_feed = frame;
-    }
-    touch_was = touching;
-
-    if (fish_mirror.feed_count != web_feeds) {
-      web_feeds = fish_mirror.feed_count;
-      float x = fish_mirror.feed_x, y = fish_mirror.feed_y;
-      if (x >= 0.0f && x <= TANK_W && y >= 0.0f && y <= TANK_H) tank_add_food(&tank, x, y);
-    }
-
-    tank_step(&tank);
-    for (int i = 0; i < N_FISH; i++) {
-      tank.fish[i].score *= 0.9995f; // old successes slowly count for less
-      if (tank.fish[i].dead) tank_replace(&tank, i); // the best fish has a baby in its place
-    }
-    for (int e = 0; e < tank.n_events; e++) report(&tank.events[e]);
-
-    draw_plants();
-    for (int i = 0; i < N_FISH; i++) prepare(i);
+    // Draw every fish part-way between the last tick and this one.
+    float blend = (float)owed / (float)tick_len;
+    for (int i = 0; i < N_FISH; i++) prepare(i, blend);
     for (int i = 0; i < N_FISH; i++) draw_fish(i);
     draw_food();
-    draw_box((int)(frame % N_FISH)); // one fish's box per frame is plenty
-    if (log_changed) log_draw();
-
-    if (tank.total_eaten != shown_fed) { shown_fed = tank.total_eaten; show_number(26, shown_fed); }
-    if (born != shown_born) { shown_born = born; show_number(92, shown_born); }
-    if (tank.total_killed != shown_eaten) { shown_eaten = tank.total_killed; show_number(164, shown_eaten); }
-
-    mirror_update();
-    led_green((int)((++frame / 15) & 1u)); // heartbeat
-
-    while (((frame_start - SYST_CVR) & 0xFFFFFFu) < frame_ticks) {}
+    frames++;
   }
 }
