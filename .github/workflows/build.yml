@@ -68,11 +68,33 @@ jobs:
           mkdir -p _site
           cp -R site/. _site/
           cp build/*.bin _site/
+
+          # Facts about this build, for the status page (status.html).
+          COMMIT_MESSAGE="$(git log -1 --pretty=%s)" python3 - <<'PY'
+          import glob, json, os, time
+          status = {
+              "build": int(os.environ["GITHUB_RUN_NUMBER"]),
+              "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "commit": os.environ["GITHUB_SHA"][:7],
+              "commit_message": os.environ.get("COMMIT_MESSAGE", ""),
+              "programs": [
+                  {"name": os.path.basename(f)[:-4], "bytes": os.path.getsize(f)}
+                  for f in sorted(glob.glob("build/*.bin"))
+              ],
+          }
+          try:
+              status["fish"] = json.load(open("build/gen/fish_training.json"))
+          except OSError:
+              pass
+          json.dump(status, open("_site/status.json", "w"), indent=1)
+          print(json.dumps(status, indent=1))
+          PY
           # Browsers keep GitHub Pages files for 10 minutes. Give the flashing code a new folder
           # name every build so a new page is never mixed up with cached older code.
           N="${{ github.run_number }}"
           mv _site/webstlink "_site/webstlink-$N"
           sed -i "s|\./webstlink/|./webstlink-$N/|g; s|__BUILD__|$N|g" _site/index.html
+          sed -i "s|__REPO__|${{ github.repository }}|g" _site/status.html
           grep -n "webstlink-$N" _site/index.html
           ls -la _site
 

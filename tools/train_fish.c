@@ -7,7 +7,8 @@
 //      mixes two parents' brains and adds small random changes.
 // At the end it writes 12 good-but-different brains to fish_brains.h for the board.
 //
-// Usage: train_fish <output file>      (TRAIN_SECONDS sets the time budget, default 40)
+// Usage: train_fish <brains file> [results file]   (TRAIN_SECONDS sets the time budget, default 40)
+// The optional results file is a small JSON summary shown on the status website.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,7 +64,9 @@ static void breed(void) {
 }
 
 // Fair comparison: the same 8 starting tanks, 100 seconds of tank time each.
-static void measure(const char *label, const Brain brains[N_FISH]) {
+typedef struct { double food, walls, score; } Result;
+
+static Result measure(const char *label, const Brain brains[N_FISH]) {
   double eaten = 0, walls = 0, score = 0;
   const int tanks = 8, steps = 3000;
   for (int s = 0; s < tanks; s++) {
@@ -78,6 +81,8 @@ static void measure(const char *label, const Brain brains[N_FISH]) {
   }
   double n = (double)tanks * N_FISH;
   printf("%-16s per fish in 100 s: food %.2f, wall bumps %.1f, score %.1f\n", label, eaten / n, walls / n, score / n);
+  Result result = {eaten / n, walls / n, score / n};
+  return result;
 }
 
 int main(int argc, char **argv) {
@@ -106,7 +111,8 @@ int main(int argc, char **argv) {
     if (generation >= MAX_GENERATIONS || time(NULL) - start >= budget) break;
     breed();
   }
-  printf("trained for %d generations in %ld s\n", generation, (long)(time(NULL) - start));
+  long seconds = (long)(time(NULL) - start);
+  printf("trained for %d generations in %ld s\n", generation, seconds);
 
   // Pick 12 for the board: the best one, then whichever of the top 32 is most unlike
   // those already picked, so the fish have different characters.
@@ -134,8 +140,17 @@ int main(int argc, char **argv) {
 
   Brain before[N_FISH], after[N_FISH];
   for (int k = 0; k < N_FISH; k++) { before[k] = instinct; after[k] = pop[chosen[k]]; }
-  measure("instincts only:", before);
-  measure("trained brains:", after);
+  Result r_before = measure("instincts only:", before);
+  Result r_after = measure("trained brains:", after);
+
+  if (argc > 2) {
+    FILE *js = fopen(argv[2], "w");
+    if (!js) { perror(argv[2]); return 1; }
+    fprintf(js, "{\"generations\": %d, \"seconds\": %ld,\n", generation, seconds);
+    fprintf(js, " \"instinct\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f},\n", r_before.food, r_before.walls, r_before.score);
+    fprintf(js, " \"trained\": {\"food\": %.3f, \"walls\": %.3f, \"score\": %.3f}}\n", r_after.food, r_after.walls, r_after.score);
+    fclose(js);
+  }
 
   FILE *out = fopen(argv[1], "w");
   if (!out) { perror(argv[1]); return 1; }

@@ -18,6 +18,11 @@ sends it to the board.
 Each program is a folder with a `main.c`. Code they share lives in `common/`: the startup
 code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you can edit).
 
+## Status
+
+<https://atrociouslyterrific.github.io/stm32f429-disco-projects/status.html> shows whether the
+latest build passed, the programs it published, and the fish brain training results.
+
 ## Putting a program on the board
 
 1. Plug the board in with the mini-USB cable (the socket labelled USB ST-LINK).

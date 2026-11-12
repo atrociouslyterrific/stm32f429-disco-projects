@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>STM32 project status</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1c2330; --muted: #5d6778; --line: #dfe3ea;
+    --accent: #1f6feb; --ok: #1a7f37; --ok-bg: #e3f6e8; --bad: #b42318; --bad-bg: #fde7e4;
+    --busy: #8a5a00; --busy-bg: #fdf1d3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151a; --card: #1b2028; --text: #e7ebf2; --muted: #9aa5b6; --line: #2c3340;
+      --accent: #4c8dff; --ok: #4cc26b; --ok-bg: #16301e; --bad: #ff7b72; --bad-bg: #3a1a18;
+      --busy: #e3b341; --busy-bg: #33290f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 0 0 12px; }
+  a { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .pill { display: inline-block; padding: 2px 12px; border-radius: 999px; font-weight: 600; font-size: .9rem; }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.bad { color: var(--bad); background: var(--bad-bg); }
+  .pill.busy { color: var(--busy); background: var(--busy-bg); }
+  .big { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .big strong { font-size: 1.25rem; }
+  .muted { color: var(--muted); }
+  .small { font-size: .9rem; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .85rem; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  ul.runs { list-style: none; margin: 0; padding: 0; }
+  ul.runs li { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  ul.runs li:last-child { border-bottom: 0; }
+  ul.runs .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>STM32 project status</h1>
+  <p class="sub">What's built for the STM32F429I-DISCO board, and how the last build went.
+    <a href="./">Put a program on the board →</a></p>
+
+  <div class="card">
+    <h2>Latest build</h2>
+    <div class="big"><span id="pill" class="pill busy">Checking…</span><strong id="headline"></strong></div>
+    <p id="detail" class="muted" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Programs on the flash page</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Program</th><th>What it does</th><th class="num">Size</th></tr></thead>
+        <tbody id="programs"><tr><td colspan="3" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p id="published" class="muted small" style="margin:12px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Fish brain training</h2>
+    <p id="training-summary" class="muted" style="margin-top:0">Loading…</p>
+    <div class="scroll">
+      <table id="training-table" hidden>
+        <thead><tr><th>Per fish, in 100 seconds</th><th class="num">Food eaten</th><th class="num">Wall bumps</th><th class="num">Score</th></tr></thead>
+        <tbody id="training"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recent builds</h2>
+    <ul id="runs" class="runs"><li class="muted">Loading…</li></ul>
+  </div>
+
+  <p class="muted small">The board itself has no internet, so this page reports on the code and builds, not on
+    the board. It refreshes every minute. <span id="note"></span></p>
+</main>
+
+<script>
+const REPO = "__REPO__";
+const DESCRIPTIONS = {
+  Fish: "A school of twelve fish, each with its own small AI brain.",
+  HelloScreen: "A greeting, colour bars and a seconds counter on the screen.",
+  Blink: "The two lights beside the screen take turns.",
+};
+const $ = (id) => document.getElementById(id);
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " minutes ago";
+  if (s < 86400 * 2) return Math.round(s / 3600) + " hours ago";
+  return Math.round(s / 86400) + " days ago";
+}
+
+function verdict(run) {
+  if (run.status !== "completed") return ["Building now", "busy"];
+  if (run.conclusion === "success") return ["Passed", "ok"];
+  if (run.conclusion === "cancelled" || run.conclusion === "skipped") return ["Cancelled", "busy"];
+  return ["Failed", "bad"];
+}
+
+// What the last successful build published (written into status.json by that build).
+async function loadPublished() {
+  try {
+    const r = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const s = await r.json();
+
+    const body = $("programs");
+    body.replaceChildren();
+    for (const p of s.programs) {
+      const row = el("tr");
+      row.append(el("td", p.name), el("td", DESCRIPTIONS[p.name] || ""), el("td", p.bytes.toLocaleString() + " bytes", "num"));
+      body.append(row);
+    }
+    $("published").textContent = "Published by build " + s.build + ", " + ago(s.time) + ".";
+
+    if (s.fish) {
+      $("training-summary").textContent =
+        "Each build trains the fish brains from scratch: " + s.fish.generations + " generations in " +
+        s.fish.seconds + " seconds, starting from hand-written instincts.";
+      const body2 = $("training");
+      body2.replaceChildren();
+      for (const [label, m] of [["Instincts only", s.fish.instinct], ["Trained brains", s.fish.trained]]) {
+        const row = el("tr");
+        row.append(el("td", label), el("td", m.food.toFixed(2), "num"), el("td", m.walls.toFixed(1), "num"), el("td", m.score.toFixed(1), "num"));
+        body2.append(row);
+      }
+      $("training-table").hidden = false;
+    } else {
+      $("training-summary").textContent = "No training results in the last build.";
+    }
+    return s;
+  } catch (e) {
+    $("programs").replaceChildren();
+    const row = el("tr");
+    const cell = el("td", "Couldn't load the published build details.", "muted");
+    cell.colSpan = 3;
+    row.append(cell);
+    $("programs").append(row);
+    $("training-summary").textContent = "Couldn't load training results.";
+    return null;
+  }
+}
+
+// How builds are going right now (asked from GitHub directly).
+async function loadRuns(published) {
+  try {
+    const r = await fetch("https://api.github.com/repos/" + REPO + "/actions/runs?per_page=6&branch=main");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const runs = (await r.json()).workflow_runs || [];
+    if (!runs.length) throw new Error("no runs");
+
+    const [word, cls] = verdict(runs[0]);
+    $("pill").textContent = word;
+    $("pill").className = "pill " + cls;
+    $("headline").textContent = "Build " + runs[0].run_number;
+    const detail = $("detail");
+    detail.replaceChildren(document.createTextNode((runs[0].display_title || "") + " · " + ago(runs[0].created_at) + " · "));
+    const link = el("a", "details on GitHub");
+    link.href = runs[0].html_url;
+    detail.append(link);
+
+    const list = $("runs");
+    list.replaceChildren();
+    for (const run of runs) {
+      const [w, c] = verdict(run);
+      const li = el("li");
+      const a = el("a", "#" + run.run_number);
+      a.href = run.html_url;
+      li.append(el("span", w, "pill " + c), a, el("span", run.display_title || "", "what"), el("span", ago(run.created_at), "muted small"));
+      list.append(li);
+    }
+    $("note").textContent = "";
+  } catch (e) {
+    // GitHub limits how often a browser may ask; fall back to what the last build recorded.
+    if (published) {
+      $("pill").textContent = "Passed";
+      $("pill").className = "pill ok";
+      $("headline").textContent = "Build " + published.build;
+      $("detail").textContent = (published.commit_message || "") + " · " + ago(published.time);
+    } else {
+      $("pill").textContent = "Unknown";
+      $("headline").textContent = "";
+      $("detail").textContent = "Couldn't reach GitHub or the published details.";
+    }
+    $("runs").replaceChildren(el("li", "GitHub isn't answering right now (it limits how often it can be asked). Try again in a few minutes.", "muted"));
+    $("note").textContent = "Live build status is unavailable at the moment; showing the last published build.";
+  }
+}
+
+async function refresh() {
+  const published = await loadPublished();
+  await loadRuns(published);
+}
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>

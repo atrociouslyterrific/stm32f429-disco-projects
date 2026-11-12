@@ -34,7 +34,7 @@ build/Fish.elf: build/gen/fish_brains.h
 build/gen/fish_brains.h: FORCE
 	mkdir -p build/gen
 	$(HOSTCC) -O2 -Wall -fno-math-errno -IFish tools/train_fish.c Fish/fish_sim.c -lm -o build/train_fish
-	build/train_fish $@
+	build/train_fish $@ build/gen/fish_training.json
 
 clean:
 	rm -rf build
