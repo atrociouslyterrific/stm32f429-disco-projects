@@ -9,20 +9,23 @@ sends it to the board.
 
 - **Blink** — the two lights beside the screen take turns: green, then red, half a second each.
 - **HelloScreen** — lights up the screen: a greeting, three colour bars and a seconds counter.
-- **Fish** — a small ecosystem. Ten fish, each steered by its own neural-network brain,
-  live over a seafloor of sand, rocks and plants.
-  - Plants grow (faster when the water is rich in nutrients) and release food; the two
-    smallest species also nibble the plants. Dead fish enrich the water.
-  - Eating earns meal points; enough of them and a fish **evolves** into the next species
-    (Fry, Darter, Striper, Hunter, Titan), each bigger and stronger with a new shape.
-  - Hungry fish **hunt** clearly weaker fish; enemies **fight** whatever their size.
-  - Fish form friendships and feuds, carry nametags, and a log reports what happens.
+- **Fish** — a small ecosystem. Ten sea animals, each steered by its own neural-network
+  brain, live over a seafloor of sand, rocks and plants.
+  - Plants grow (faster when the water is rich in nutrients) and release food. Dead
+    animals enrich the water.
+  - Everyone starts as a tiny Fry. Eating earns meal points; enough of them and an animal
+    **evolves**: Fry, Squid, Turtle, then Shark and Orca (if it has been a hunter) or Ray
+    and Whale (if it has been gentle). The more it eats, the bigger it gets; bigger
+    animals bite harder and have more health.
+  - Hungry animals **hunt** clearly weaker ones; enemies **fight** whatever their size.
+    Every bite is also a meal.
+  - They form friendships and feuds, carry nametags, and a log reports what happens.
   - Tap the water to drop food (the blue button drops some at random). The panel shows
-    each fish's species level, health (green), hunger (orange), best friend (+) and worst
-    enemy (-).
-  - When a fish dies, the best-doing fish has a baby with a slightly changed brain, so the
-    brains keep evolving on the board. The starting brains are trained on GitHub during
-    every build (`tools/train_fish.c`).
+    each animal's evolution level, health (green), hunger (orange), best friend (+) and
+    worst enemy (-).
+  - When one dies, the best-doing animal has a baby with a slightly changed brain, so the
+    brains keep evolving on the board. The starting brains are trained on GitHub
+    (`tools/train_fish.c`).
 
 Each program is a folder with a `main.c`. Code they share lives in `common/`: the startup
 code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you can edit).
@@ -38,7 +41,11 @@ code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you 
 - **Show my board's tank**: with the board plugged in, the page reads the real tank out of
   the running chip over the USB cable and shows it live. Clicking the water then drops
   food into the board's tank.
+- **Inside a brain**: one animal's neural network, drawn live as it thinks.
 - **Training progress**: the score per generation from this build's training run.
+
+Before the site is published, `tools/check_site.mjs` checks it on GitHub: the scripts
+parse, the files are there, and a test tank lives for five minutes without going wrong.
 
 ## Putting a program on the board
 

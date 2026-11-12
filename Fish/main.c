@@ -3,16 +3,17 @@
 //
 //   Seafloor       Sand, rocks and plants. Plants grow (faster in rich water) and release
 //                  food. Small fish also nibble the plants. Dead fish enrich the water.
-//   Evolving       Eating earns meal points. Enough of them and a fish evolves into the
-//                  next species: Fry, Darter, Striper, Hunter, Titan. Each is bigger and
-//                  stronger, and has a new shape (fins, forked tail, horn).
+//   Evolving       Everyone starts as a tiny Fry. Eating earns meal points; enough of them
+//                  and an animal evolves: Fry, Squid, Turtle, then Shark and Orca (if it
+//                  has been a hunter) or Ray and Whale (if it has been gentle). Each is
+//                  bigger and stronger. Every bite is a meal too.
 //   Hunting        A hungry fish hunts clearly weaker fish. The bitten fish flashes red.
 //   Fighting       Enemies attack each other whatever their size; both get hurt.
 //   Relationships  Fish that swim together become friends; crowding, stealing food and
 //                  attacks make enemies. Friends never attack each other.
 //   Nametags       Every fish carries its name above it.
 //   Feeding        Tap the water to drop food there. The blue button drops some at random.
-//   Panel          A box per fish: name and species level (1-5), green bar = health,
+//   Panel          A box per fish: name and evolution level (1-5), green bar = health,
 //                  orange bar = hunger, the colours of its best friend (+) and worst enemy (-).
 //   Log            Three lines reporting what happens, newest at the bottom.
 //   Babies         When a fish dies, the fish doing best has a baby: similar looks and a
@@ -93,7 +94,7 @@ static struct {
   float x, y, dx, dy;                 // where it is drawn this frame
   float old_x, old_y, old_dx, old_dy; // where it was one tick ago
   float stretch_u, stretch_v; // turn screen distances into "standard fish" distances
-  uint16_t paint[4];          // body, eye, tail and fins, marking
+  uint16_t paint[5];          // body, eye, fins and tail, dark marking, pale parts
   int tag_x, tag_y;           // where the nametag goes
   Rect now, last;             // the rectangle holding the fish and its nametag
   float last_health;
@@ -119,7 +120,7 @@ static const char NAMES[][4] = {
   "NED", "OAK", "PIP", "RAY", "SAM", "TAD", "UMA", "VIC", "WES", "XAN", "YAZ", "ZOE",
 };
 #define N_NAMES ((int)(sizeof NAMES / sizeof NAMES[0]))
-static const char *const SPECIES[N_STAGES] = {"FRY", "DARTER", "STRIPER", "HUNTER", "TITAN"};
+static const char *const SPECIES[N_KINDS] = {"FRY", "SQUID", "TURTLE", "SHARK", "RAY", "ORCA", "WHALE"};
 
 static int clamp_int(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -256,39 +257,104 @@ static void draw_plants(void) {
 
 // ---------- drawing the fish ----------
 
-// Which part of a standard-sized fish is at this spot? Measured from its middle:
-// u = how far towards its nose, v = how far to its right. Later species have more to them.
-// 0 = nothing, 1 = body, 2 = eye, 3 = tail or fin.
-static inline int fish_part(float u, float v, int stage) {
-  float bu = u - 1.0f;
-  if (bu * bu * (1.0f / 25.0f) + v * v * (1.0f / 6.76f) <= 1.0f) { // an oval 10 long, 5.2 wide
-    float eu = u - 3.6f, ev = v + 1.0f;
-    return (eu * eu + ev * ev < 0.9f) ? 2 : 1;
-  }
-  if (u < -3.0f && u >= -8.5f) { // the tail: a triangle widening backwards
-    float half = 0.6f + (-3.0f - u) * 0.6f;
-    if (v < half && v > -half) {
-      if (stage >= 2 && u < -5.5f) { // Striper and up: a forked tail (a notch cut out of it)
-        float notch = (-5.5f - u) * 0.55f;
-        if (v < notch && v > -notch) return 0;
-      }
-      return 3;
-    }
-  }
-  if (stage >= 1 && u > -1.5f && u < 2.5f && v < -2.0f && v > -2.0f - (2.5f - u) * 0.55f) return 3; // Darter and up: a back fin
-  if (stage >= 3 && u > -1.0f && u < 2.0f && v > 2.0f && v < 2.0f + (2.0f - u) * 0.5f) return 3;    // Hunter and up: a belly fin
-  if (stage >= 4 && u > 5.5f && u < 8.5f) { // Titan: a horn
-    float half = (8.5f - u) * 0.35f;
-    if (v < half && v > -half) return 1;
-  }
-  return 0;
+// ---- the seven sea animals ----
+// Each is described on a "standard animal" grid, measured from its middle:
+// u = how far towards its nose, v = how far to its right. The answer is which part of
+// the animal is at that spot:
+//   0 nothing, 1 body, 2 eye, 3 fin or tail, 4 dark marking, 5 pale (belly, patches)
+
+static inline float absf(float v) { return v < 0.0f ? -v : v; }
+
+// Is (u, v) inside an oval centred on (cu, cv), ru long and rv wide?
+static inline int oval(float u, float v, float cu, float cv, float ru, float rv) {
+  float a = (u - cu) / ru, b = (v - cv) / rv;
+  return a * a + b * b <= 1.0f;
 }
 
-// The colour of fish i's body at standard-fish spot (u, v), or -1 if nothing is there.
+static int animal_part(int kind, float u, float v) {
+  const float av = absf(v); // distance from its centre line, either side
+  switch (kind) {
+    case K_FRY: // a tiny fish: oval body, simple tail
+      if (oval(u, v, 1.0f, 0.0f, 4.0f, 2.2f)) return oval(u, v, 3.0f, -0.8f, 0.8f, 0.8f) ? 2 : 1;
+      if (u < -2.5f && u >= -6.5f && av < 0.5f + (-2.5f - u) * 0.55f) return 3;
+      return 0;
+
+    case K_SQUID: // a long body with fins at the tip, and three arms trailing behind
+      if (oval(u, v, 1.5f, 0.0f, 5.0f, 2.2f)) return oval(u, v, -2.2f, -1.0f, 0.8f, 0.8f) ? 2 : 1;
+      if (u > 3.0f && u < 6.0f && av > 1.2f && av < 1.2f + (6.0f - u) * 0.9f) return 3;
+      if (u < -3.0f && u >= -8.5f) {
+        float from_arm = av > 0.7f ? absf(av - 1.4f) : av; // arms run along v = -1.4, 0 and 1.4
+        if (from_arm < 0.45f) return 3;
+      }
+      return 0;
+
+    case K_TURTLE: // a round shell with a dark middle, a pale head, four flippers
+      if (oval(u, v, 0.0f, 0.0f, 4.2f, 3.6f)) return oval(u, v, 0.0f, 0.0f, 2.3f, 1.9f) ? 4 : 1;
+      if (oval(u, v, 5.4f, 0.0f, 1.6f, 1.2f)) return oval(u, v, 5.9f, -0.5f, 0.5f, 0.5f) ? 2 : 5;
+      if (oval(u, av, 2.8f, 4.3f, 1.9f, 1.2f)) return 3;
+      if (oval(u, av, -3.2f, 3.6f, 1.4f, 0.9f)) return 3;
+      if (u < -4.0f && u > -5.6f && av < 0.4f) return 3;
+      return 0;
+
+    case K_SHARK: // long and slim, pale belly, tall back fin, crescent tail
+      if (oval(u, v, 0.5f, 0.0f, 7.0f, 2.3f)) {
+        if (oval(u, v, 5.0f, -0.9f, 0.7f, 0.7f)) return 2;
+        return v > 0.9f ? 5 : 1;
+      }
+      if (u > -1.0f && u < 2.5f && v < -2.0f && v > -2.0f - (2.5f - u) * 0.9f) return 3;
+      if (u > 0.0f && u < 3.0f && v > 2.0f && v < 2.0f + (3.0f - u) * 0.6f) return 3;
+      if (u < -5.5f && u >= -9.5f) {
+        float back = -5.5f - u;
+        if (av < 0.6f + back && av > back * 0.55f - 0.3f) return 3;
+      }
+      return 0;
+
+    case K_RAY: // a wide diamond with a dark stripe down the middle and a thin tail
+      if (absf(u - 0.5f) * (1.0f / 5.0f) + av * (1.0f / 5.5f) < 1.0f) {
+        if (oval(u, av, 3.2f, 1.2f, 0.6f, 0.6f)) return 2;
+        return (av < 0.6f && u < 3.0f) ? 4 : 1;
+      }
+      if (u < -4.0f && u >= -9.0f && av < 0.35f) return 3;
+      return 0;
+
+    case K_ORCA: // dark and heavy, with a pale belly and a pale patch behind the eye
+      if (oval(u, v, 0.5f, 0.0f, 7.0f, 2.9f)) {
+        if (oval(u, v, 5.3f, -0.5f, 0.5f, 0.5f)) return 2;
+        if (oval(u, v, 4.0f, -1.3f, 1.2f, 0.55f)) return 5;
+        return v > 1.3f ? 5 : 4;
+      }
+      if (u > -0.5f && u < 2.0f && v < -2.6f && v > -2.6f - (2.0f - u) * 1.2f) return 4;
+      if (u > 0.5f && u < 3.0f && v > 2.6f && v < 2.6f + (3.0f - u) * 0.6f) return 4;
+      if (u < -5.8f && u >= -9.5f) {
+        float back = -5.8f - u;
+        if (av < 0.5f + back && av > back * 0.45f - 0.4f) return 4;
+      }
+      return 0;
+
+    default: // K_WHALE: the biggest: a great rounded body, grooved pale belly, wide tail
+      if (oval(u, v, 0.5f, 0.0f, 7.5f, 3.4f)) {
+        if (oval(u, v, 5.2f, -0.5f, 0.55f, 0.55f)) return 2;
+        if (v > 1.4f) return (((int)(u * 1.4f + 20.0f)) & 1) ? 5 : 3;
+        return 1;
+      }
+      if (u > 1.0f && u < 3.5f && v > 3.0f && v < 3.0f + (3.5f - u) * 0.5f) return 3;
+      if (u < -6.2f && u >= -10.0f) {
+        float back = -6.2f - u;
+        if (av < 0.5f + back * 1.1f && av > back * 0.5f - 0.4f) return 3;
+      }
+      return 0;
+  }
+}
+
+// How far each kind reaches from its middle on the standard grid: lengthways and sideways.
+static const float REACH_ALONG[N_KINDS]  = {6.5f, 8.5f, 7.0f, 9.5f, 9.0f, 9.5f, 10.0f};
+static const float REACH_ACROSS[N_KINDS] = {2.8f, 3.5f, 5.5f, 5.2f, 5.5f, 5.6f, 4.9f};
+
+// The colour of animal i at standard-grid spot (u, v), or -1 if nothing is there.
 static inline int body_color(int i, float u, float v) {
-  int part = fish_part(u, v, tank.fish[i].stage);
+  int part = animal_part(tank.fish[i].kind, u, v);
   if (!part) return -1;
-  if (part == 1) {
+  if (part == 1) { // its own markings go on plain body only
     if (look[i].marking == 1 && u > -0.4f && u < 1.2f) return art[i].paint[3];
     if (look[i].marking == 2 && v < -0.9f) return art[i].paint[3];
   }
@@ -329,7 +395,9 @@ static void prepare(int i, float blend) {
   art[i].stretch_v = f->slim / f->size;
 
   int cx = (int)art[i].x, cy = (int)art[i].y;
-  int reach = (int)(8.5f * f->size * f->slim) + 2; // the fish fits in a square this far around its middle
+  // The animal fits in a square this far around its middle.
+  float along = REACH_ALONG[f->kind] * f->size * f->slim, across = REACH_ACROSS[f->kind] * f->size / f->slim;
+  int reach = (int)(along > across ? along : across) + 2;
   // The nametag sits above the fish, or below it when the fish is at the top of the tank.
   int above = cy - reach - TAG_H - 1 >= 0;
   art[i].tag_x = clamp_int(cx - TAG_W / 2, 0, LCD_W - TAG_W);
@@ -346,6 +414,7 @@ static void prepare(int i, float blend) {
   art[i].paint[1] = RGB(10, 10, 30);
   art[i].paint[2] = RGB(red * 2 / 3, green * 2 / 3, blue * 2 / 3);
   art[i].paint[3] = RGB(red * 2 / 5, green * 2 / 5, blue * 2 / 5);
+  art[i].paint[4] = RGB((red + 2 * 255) / 3, (green + 2 * 255) / 3, (blue + 2 * 255) / 3);
 }
 
 static int overlap(Rect a, Rect b) { return a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1; }
@@ -530,7 +599,7 @@ static void report(const Event *e) {
     case EV_LIKES:   log_add(a, " NOW LIKES ", b); break;
     case EV_HATES:   log_add(a, " NOW HATES ", b); break;
     case EV_FOUGHT:  log_add(a, " FOUGHT ", b); break;
-    case EV_EVOLVED: log_add(a, " EVOLVED INTO A ", b); break;
+    case EV_EVOLVED: log_add(a, e->b == K_ORCA ? " EVOLVED INTO AN " : " EVOLVED INTO A ", b); break;
     case EV_BORN:
       dress_baby(e->a, e->b); // the dead fish's name is used up to here; now the baby gets its own
       log_add(look[e->a].name, " WAS BORN TO ", b);
@@ -600,7 +669,7 @@ int main(void) {
   RCC_AHB1ENR |= 1u << 0; // port A, for the button
 
   fish_mirror.magic = 0x48534946u; // "FISH"
-  fish_mirror.version = 2;
+  fish_mirror.version = 3;
 
   tank_init(&tank, 0x1234ABCDu);
   scenery_init();

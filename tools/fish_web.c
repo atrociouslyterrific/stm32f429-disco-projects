@@ -79,3 +79,14 @@ EXPORT int web_food_at(void) { return VIEW_FOOD_AT; }
 EXPORT int web_like_at(void) { return VIEW_LIKE_AT; }
 EXPORT int web_plant_at(void) { return VIEW_PLANT_AT; }
 EXPORT int web_view_size(void) { return VIEW_SIZE; }
+
+// A look inside the brains (see "seen", "thought" and "decided" in fish_sim.h).
+// A brain's weights are laid out as: for each hidden cell, one weight per sense; then for
+// each decision, one weight per hidden cell plus one resting level.
+EXPORT float *web_brain(int i) { return tank.fish[i].brain.w; }
+EXPORT float *web_seen(void) { return &tank.seen[0][0]; }
+EXPORT float *web_thought(void) { return &tank.thought[0][0]; }
+EXPORT float *web_decided(void) { return &tank.decided[0][0]; }
+EXPORT int web_n_in(void) { return N_IN; }
+EXPORT int web_n_hid(void) { return N_HID; }
+EXPORT int web_n_out(void) { return N_OUT; }

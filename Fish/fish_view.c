@@ -15,7 +15,7 @@ void fish_view(const Tank *tank, unsigned born, float out[VIEW_SIZE]) {
     *p++ = f->x; *p++ = f->y; *p++ = f->dx; *p++ = f->dy;
     *p++ = f->size; *p++ = f->slim; *p++ = f->energy; *p++ = f->health;
     *p++ = f->score; *p++ = (float)f->age; *p++ = (float)f->kills; *p++ = (float)f->eaten;
-    *p++ = (float)f->stage; *p++ = f->growth; *p++ = fish_max_health(f);
+    *p++ = (float)f->stage; *p++ = f->growth; *p++ = fish_max_health(f); *p++ = (float)f->kind;
   }
   for (int k = 0; k < N_FOOD; k++) {
     *p++ = tank->food[k].x; *p++ = tank->food[k].y; *p++ = (float)tank->food[k].there;

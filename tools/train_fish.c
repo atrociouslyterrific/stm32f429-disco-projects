@@ -1,7 +1,7 @@
 // Trains the fish brains. Runs on GitHub during the build (never on the board).
 //
 // It keeps a population of 100 brains and repeats, for as long as its time budget allows:
-//   1. Put the brains into tanks of 10 fish of mixed species and let them live for a while at high speed.
+//   1. Put the brains into tanks of 10 sea animals of mixed kinds and let them live for a while at high speed.
 //   2. Score each one: food eaten, swimming with the group, not bumping walls, biting
 //      when hungry, and above all not starving or getting eaten.
 //   3. Keep the best quarter. Refill the rest with children of the best: each child
@@ -47,6 +47,7 @@ static void evaluate(void) {
     }
     for (int tk = 0; tk < POP / N_FISH; tk++) {
       tank_init(&tank, rng_next(&rng));
+      tank_scatter_stages(&tank);
       for (int k = 0; k < N_FISH; k++) tank.fish[k].brain = pop[order[tk * N_FISH + k]];
       for (int s = 0; s < STEPS; s++) live_one_tick();
       for (int k = 0; k < N_FISH; k++) fit[order[tk * N_FISH + k]] += tank.fish[k].score;
@@ -81,6 +82,7 @@ static Result measure(const char *label, const Brain brains[N_FISH]) {
   const int tanks = 8, steps = 3000;
   for (int s = 0; s < tanks; s++) {
     tank_init(&tank, 1000u + (uint32_t)s * 7919u);
+    tank_scatter_stages(&tank);
     for (int k = 0; k < N_FISH; k++) tank.fish[k].brain = brains[k];
     for (int i = 0; i < steps; i++) live_one_tick();
     for (int k = 0; k < N_FISH; k++) {
@@ -145,6 +147,7 @@ int main(int argc, char **argv) {
     }
     for (int tk = 0; tk < FINALISTS / N_FISH; tk++) {
       tank_init(&tank, rng_next(&rng));
+      tank_scatter_stages(&tank);
       for (int k = 0; k < N_FISH; k++) tank.fish[k].brain = pop[ranked[seat[tk * N_FISH + k]]];
       for (int st = 0; st < STEPS; st++) live_one_tick();
       for (int k = 0; k < N_FISH; k++) exam[seat[tk * N_FISH + k]] += tank.fish[k].score;

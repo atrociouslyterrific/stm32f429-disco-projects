@@ -2,8 +2,10 @@
 //
 //   Plants grow on the seafloor, faster when the water is rich in nutrients. Grown plants
 //   release food into the water. Small fish can also nibble the plants themselves.
-//   Fish eat the food, grow, and after enough meals evolve into the next species:
-//   bigger, stronger, with a new shape. Hungry fish hunt weaker fish; enemies fight.
+//   Everyone starts as a tiny Fry. Eating makes an animal grow, and after enough meals it
+//   evolves into the next kind of sea animal: Fry, Squid, Turtle, then either Shark and
+//   Orca (if it has been a hunter) or Ray and Whale (if it has been gentle).
+//   Hungry animals hunt weaker ones; enemies fight. Every bite is also a meal.
 //   When a fish dies, what is left of it becomes nutrients, which feed the plants.
 //
 // Every fish is steered by its own small neural-network brain. There is no screen code
@@ -22,7 +24,10 @@
 #define N_FISH 10
 #define N_FOOD 8
 #define N_PLANTS 6
-#define N_STAGES 5 // species, from Fry (0) up to Titan (4)
+#define N_STAGES 5 // steps of evolution, 0 to 4
+
+// The kinds of sea animal. Everyone starts as a Fry; see the top of this file for the order.
+enum { K_FRY, K_SQUID, K_TURTLE, K_SHARK, K_RAY, K_ORCA, K_WHALE, N_KINDS };
 #define NOBODY N_FISH
 
 // Each fish's brain is a small neural network:
@@ -55,7 +60,8 @@ typedef struct {
   float score;    // how well it is doing; decides who has babies
   uint16_t eaten, wall_hits, bites, kills;
   uint16_t age;        // ticks alive
-  uint8_t stage;       // its species: 0 Fry, 1 Darter, 2 Striper, 3 Hunter, 4 Titan
+  uint8_t stage;       // how many times it has evolved, 0 to 4
+  uint8_t kind;        // which sea animal it is now (K_FRY ... K_WHALE)
   uint8_t bite_wait;   // ticks until it can bite again
   uint8_t dead;        // set when its health runs out; whoever runs the tank replaces it
   uint8_t eaten_by;    // which fish finished it off, or NOBODY if it starved
@@ -81,7 +87,7 @@ enum {
   EV_LIKES,   // a has come to like b
   EV_HATES,   // a has come to hate b
   EV_FOUGHT,  // a attacked its enemy b, and b fought back
-  EV_EVOLVED, // a evolved; b is its new species number
+  EV_EVOLVED, // a evolved; b is the kind of animal it became
 };
 typedef struct {
   uint8_t type, a, b;
@@ -101,6 +107,9 @@ typedef struct {
   uint32_t total_eaten;  // food pellets eaten
   uint32_t total_killed; // fish eaten by other fish
   uint32_t total_starved;
+  // A look inside the brains, for anyone who wants to watch them think: what each animal
+  // sensed on the latest tick, what its hidden cells made of that, and what it decided.
+  float seen[N_FISH][N_IN], thought[N_FISH][N_HID], decided[N_FISH][N_OUT];
   // What happened during the latest tick (plus any babies born since). Emptied every tick.
   Event events[MAX_EVENTS];
   uint8_t n_events;
@@ -121,8 +130,11 @@ void fish_random_genes(Fish *fish, uint32_t *rng);
 float fish_power(const Fish *fish); // how strong it is in a fight: size and species both count
 float fish_max_health(const Fish *fish); // bigger fish have more health...
 float fish_bite(const Fish *fish);       // ...and a harder bite; smaller fish, less of both
-#define HEALTH_LIMIT 1.7f // the most health any fish can have (a full-grown Titan)
-void tank_init(Tank *tank, uint32_t seed);
+#define HEALTH_LIMIT 2.1f // the most health any animal can have (a full-grown Whale)
+void tank_init(Tank *tank, uint32_t seed); // everyone starts as a Fry
+// For training only: turn the tank into a going concern, with animals at every step of
+// evolution, so brains get practice at being (and meeting) all of them.
+void tank_scatter_stages(Tank *tank);
 int tank_drop_food(Tank *tank);                   // at a random spot; returns the slot or -1
 int tank_add_food(Tank *tank, float x, float y);  // at a chosen spot
 // Bring fish i back as a newborn Fry somewhere random, forgetting its relationships.

@@ -16,7 +16,7 @@
 #define GROW_PELLET 0.05f
 #define GROW_BITE   0.06f
 #define GROW_KILL   0.2f
-static const float STAGE_NEEDS[N_STAGES] = {0.0f, 3.0f, 8.0f, 16.0f, 30.0f}; // meal points to reach each species
+static const float STAGE_NEEDS[N_STAGES] = {0.0f, 2.0f, 5.0f, 10.0f, 18.0f}; // meal points to reach each step
 static const float STAGE_SIZE[N_STAGES]  = {0.9f, 1.25f, 1.6f, 2.0f, 2.4f};  // biggest size of each species
 
 // Hunting and fighting
@@ -140,8 +140,25 @@ void fish_random_genes(Fish *f, uint32_t *rng) {
 }
 
 float fish_power(const Fish *f) { return f->size * (1.0f + 0.2f * (float)f->stage); }
-float fish_max_health(const Fish *f) { return 0.5f + 0.5f * f->size; }            // 0.85 for a baby, 1.7 for the biggest
-float fish_bite(const Fish *f) { return f->size * (1.0f + 0.1f * (float)f->stage); } // how hard it bites
+static int gentle(const Fish *f) { return f->kind == K_RAY || f->kind == K_WHALE; }
+static int hunter(const Fish *f) { return f->kind == K_SHARK || f->kind == K_ORCA; }
+
+// Bigger animals have more health and a harder bite. On top of that, the gentle giants
+// (Ray, Whale) are tougher, and the hunters (Shark, Orca) bite harder still.
+float fish_max_health(const Fish *f) { return (0.5f + 0.5f * f->size) * (gentle(f) ? 1.2f : 1.0f); }
+float fish_bite(const Fish *f) { return f->size * (1.0f + 0.1f * (float)f->stage) * (hunter(f) ? 1.25f : 1.0f); }
+
+// Which animal does it become at each step? The first three steps are the same for
+// everyone; after that, hunters and gentle animals go different ways.
+static uint8_t kind_for(int stage, int is_hunter) {
+  switch (stage) {
+    case 0: return K_FRY;
+    case 1: return K_SQUID;
+    case 2: return K_TURTLE;
+    case 3: return is_hunter ? K_SHARK : K_RAY;
+    default: return is_hunter ? K_ORCA : K_WHALE;
+  }
+}
 
 static void place(Fish *f, uint32_t *rng) {
   f->x = 20.0f + rng_unit(rng) * (TANK_W - 40.0f);
@@ -159,6 +176,7 @@ void tank_rebirth(Tank *t, int i) {
   place(f, &t->rng);
   f->energy = 0.6f;
   f->stage = 0;
+  f->kind = K_FRY;
   f->growth = 0.0f;
   f->size = BABY_SIZE;
   f->health = fish_max_health(f);
@@ -222,12 +240,8 @@ void tank_init(Tank *t, uint32_t seed) {
     tank_rebirth(t, i);
     fish_random_genes(f, &t->rng);
     brain_instinct(&f->brain);
-    // The tank starts as a going concern: mostly Fry, a few already evolved once or twice.
-    float luck = rng_unit(&t->rng);
-    f->stage = luck < 0.5f ? 0 : luck < 0.8f ? 1 : 2;
-    f->growth = STAGE_NEEDS[f->stage];
-    f->max_size = STAGE_SIZE[f->stage];
-    f->size = f->max_size - 0.2f * rng_unit(&t->rng);
+    // Everyone starts as a Fry, not all quite the same size.
+    f->size = BABY_SIZE + 0.15f * rng_unit(&t->rng);
     f->health = fish_max_health(f);
     f->energy = 0.6f + 0.4f * rng_unit(&t->rng);
     f->age = NEWBORN_SAFE;
@@ -241,6 +255,19 @@ void tank_init(Tank *t, uint32_t seed) {
   }
   tank_drop_food(t);
   tank_drop_food(t);
+}
+
+void tank_scatter_stages(Tank *t) {
+  for (int i = 0; i < N_FISH; i++) {
+    Fish *f = &t->fish[i];
+    float luck = rng_unit(&t->rng);
+    f->stage = luck < 0.35f ? 0 : luck < 0.65f ? 1 : luck < 0.85f ? 2 : 3;
+    f->kind = kind_for(f->stage, rng_unit(&t->rng) < 0.5f);
+    f->growth = STAGE_NEEDS[f->stage];
+    f->max_size = STAGE_SIZE[f->stage];
+    f->size = f->max_size - 0.2f * rng_unit(&t->rng);
+    f->health = fish_max_health(f);
+  }
 }
 
 // ---------- sensing and thinking ----------
@@ -279,7 +306,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
     float d2 = ox * ox + oy * oy;
     if (d2 < best) { best = d2; fx = ox; fy = oy; found = 1; }
   }
-  if (me->stage <= 1) {
+  if (me->stage <= 1 || gentle(me)) {
     for (int p = 0; p < N_PLANTS; p++) {
       if (t->plants[p].height < 0.2f) continue;
       float ox = t->plants[p].x - me->x, oy = plant_top(&t->plants[p]) - me->y;
@@ -368,9 +395,9 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   in[S_ALWAYS_ON] = 1.0f;
 }
 
-// Run the brain: senses in, decisions out (each between -1 and 1).
-static void think(const Brain *b, const float in[N_IN], float out[N_OUT]) {
-  float hidden[N_HID];
+// Run the brain: senses in, decisions out (each between -1 and 1). What the hidden cells
+// came to is handed back too, for anyone watching.
+static void think(const Brain *b, const float in[N_IN], float hidden[N_HID], float out[N_OUT]) {
   for (int h = 0; h < N_HID; h++) {
     float sum = 0.0f;
     for (int k = 0; k < N_IN; k++) sum += W_IN(b, h, k) * in[k];
@@ -399,10 +426,13 @@ static void fed(Tank *t, int i, float points, float size_gain) {
   f->growth += points;
   while (f->stage < N_STAGES - 1 && f->growth >= STAGE_NEEDS[f->stage + 1]) {
     f->stage++;
+    // Hunter or gentle? Decided at the third step by how it has lived so far, and kept after.
+    int is_hunter = f->stage == 3 ? (f->bites + 2 * f->kills >= 2) : hunter(f);
+    f->kind = kind_for(f->stage, is_hunter);
     f->max_size = STAGE_SIZE[f->stage];
     f->health = fish_max_health(f); // evolving heals
     f->score += 5.0f;
-    note(t, EV_EVOLVED, i, f->stage);
+    note(t, EV_EVOLVED, i, f->kind);
   }
   f->size = clamp(f->size + size_gain, 0.0f, f->max_size);
 }
@@ -471,6 +501,8 @@ static void try_bite(Tank *t, int i) {
     me->health -= its_bite * 0.5f; // it bites back
     other->bite_wait = BITE_REST;
     me->score += 2.0f * edge - 2.0f; // worth it only against someone weaker
+    me->energy = clamp(me->energy + 0.15f, 0.0f, 1.0f); // even a bite in a fight is a mouthful
+    fed(t, i, 0.5f, GROW_BITE * 0.5f);
     feel(t, i, target, -0.2f);
     if (other->health > 0.0f && me->health > 0.0f) note(t, EV_FOUGHT, i, target);
   }
@@ -517,10 +549,10 @@ static void tend_plants(Tank *t) {
     }
   }
 
-  // Grazing: the two smallest species can eat the plants directly, slowly.
+  // Grazing: the two smallest kinds, and the gentle giants, eat the plants directly, slowly.
   for (int i = 0; i < N_FISH; i++) {
     Fish *f = &t->fish[i];
-    if (f->dead || f->stage > 1 || f->energy > 0.8f) continue;
+    if (f->dead || (f->stage > 1 && !gentle(f)) || f->energy > 0.8f) continue;
     for (int p = 0; p < N_PLANTS; p++) {
       Plant *plant = &t->plants[p];
       float ox = plant->x - f->x, oy = plant_top(plant) - f->y;
@@ -544,12 +576,11 @@ void tank_step(Tank *t) {
 
   // Everyone looks and decides first, then everyone moves, so no fish gets a head start.
   for (int i = 0; i < N_FISH; i++) {
-    float in[N_IN], out[N_OUT];
-    sense(t, i, in, &with_group[i], &crowded[i], &sees_prey[i]);
-    think(&t->fish[i].brain, in, out);
-    turn[i] = out[D_TURN];
-    push[i] = out[D_PUSH];
-    bite[i] = out[D_BITE];
+    sense(t, i, t->seen[i], &with_group[i], &crowded[i], &sees_prey[i]);
+    think(&t->fish[i].brain, t->seen[i], t->thought[i], t->decided[i]);
+    turn[i] = t->decided[i][D_TURN];
+    push[i] = t->decided[i][D_PUSH];
+    bite[i] = t->decided[i][D_BITE];
   }
 
   for (int i = 0; i < N_FISH; i++) {

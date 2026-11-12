@@ -108,6 +108,13 @@ jobs:
           grep -n "webstlink-$N" _site/index.html
           ls -la _site
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the finished website (scripts, files, and a five-minute test tank)
+        run: node tools/check_site.mjs _site
+
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:

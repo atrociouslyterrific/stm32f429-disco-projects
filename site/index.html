@@ -84,6 +84,8 @@
 
   /* live tank */
   .tank-wrap { display: flex; justify-content: center; }
+  canvas#brain { width: 100%; height: 460px; display: block; }
+  select { font: inherit; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
   canvas#tank { width: 100%; max-width: 480px; aspect-ratio: 240 / 224; border-radius: 10px; display: block; cursor: crosshair; touch-action: manipulation; }
   .tank-bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; justify-content: center; margin: 12px 0; }
   .counter { font-variant-numeric: tabular-nums; }
@@ -149,7 +151,7 @@
 
     <div class="prog">
       <div><span class="name">Fish</span><span class="size" data-size="Fish"></span></div>
-      <p class="desc">A small ecosystem: ten fish with their own AI brains over a seafloor of plants. They eat, grow, evolve through five species, make friends and enemies, hunt and fight. Tap the screen to feed them.</p>
+      <p class="desc">A small ecosystem: ten sea animals with their own AI brains over a seafloor of plants. They start as tiny fry, eat, grow and evolve into squid, turtles, sharks, rays, orcas and whales, make friends and enemies, hunt and fight. Tap the screen to feed them.</p>
       <button class="go" data-file="Fish.bin" data-done="Ten named fish should be swimming over a sandy seafloor with plants, with health and hunger bars and a log underneath. Tap the water to feed them.">Flash</button>
     </div>
     <div class="prog">
@@ -211,9 +213,9 @@
       <summary>How the ecosystem works</summary>
       <ul class="how">
         <li><strong>Plants</strong> grow on the seafloor, faster when the water is rich. Grown plants release food. The two smallest species also nibble the plants.</li>
-        <li><strong>Evolving:</strong> eating earns meal points. Enough of them and a fish evolves into the next species: Fry → Darter → Striper → Hunter → Titan. Each is bigger and stronger, with a new shape.</li>
-        <li><strong>Hunting:</strong> a hungry fish hunts clearly weaker fish. <strong>Fighting:</strong> enemies attack each other whatever their size, and both get hurt.</li>
-        <li><strong>Size matters:</strong> the bigger a fish, the harder it bites and the more health it has. Small fish bite weakly and die easily.</li>
+        <li><strong>Evolving:</strong> everyone starts as a tiny Fry. Eating earns meal points; enough of them and an animal evolves: Fry → Squid → Turtle, then Shark → Orca if it has been a hunter, or Ray → Whale if it has been gentle. Each step is bigger and stronger.</li>
+        <li><strong>Hunting:</strong> a hungry animal hunts clearly weaker ones. <strong>Fighting:</strong> enemies attack each other whatever their size, and both get hurt. Every bite is also a meal for the biter.</li>
+        <li><strong>Size matters:</strong> the bigger an animal, the harder it bites and the more health it has. Hunters (Shark, Orca) bite harder still; the gentle giants (Ray, Whale) are tougher and can graze on plants.</li>
         <li><strong>Relationships:</strong> swimming together builds friendship; crowding, stealing food and attacks make enemies. Friends never attack each other.</li>
         <li><strong>The cycle:</strong> when a fish dies, what's left enriches the water, which grows the plants, which feed the fish. The fish doing best has a baby in its place, with a slightly changed brain.</li>
       </ul>
@@ -221,6 +223,24 @@
     <h3>What's been happening</h3>
     <ol class="events" id="events"><li class="muted">Nothing yet. Give them a minute.</li></ol>
     <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card">
+    <h2>Inside a brain</h2>
+    <p class="lead">Every animal in the tank is steered by its own small neural network. This is one of them, thinking,
+      right now: what it senses on the left, eight hidden cells in the middle, what it decides on the right.</p>
+    <div class="tank-bar" style="justify-content:flex-start;margin-top:0">
+      <label for="brain-pick">Whose brain:</label>
+      <select id="brain-pick"></select>
+    </div>
+    <canvas id="brain" height="460" aria-label="Diagram of one animal's neural network with live activity"></canvas>
+    <div class="key">
+      <span><i style="background:var(--series-1)"></i>Blue: a positive signal ("more", "yes", "to the right")</span>
+      <span><i style="background:var(--series-2)"></i>Orange: a negative signal ("less", "no", "to the left")</span>
+      <span>Brighter and thicker = stronger right now</span>
+    </div>
+    <p id="brain-note" class="muted small" style="margin:10px 0 0">Each line is one connection. Its strength is fixed for that animal's whole life;
+      babies get their parent's connections with small random changes, which is how the brains evolve.</p>
   </div>
 
   <div class="card">
@@ -351,6 +371,9 @@ buttons.forEach(button => button.addEventListener("click", async () => {
     logger.error(String(err && err.stack ? err.stack : err));
     const [what, how] = explain(err);
     say(what, "bad", how);
+    // Flashing pauses the chip. If it failed part-way, set the old program going again
+    // rather than leaving the board frozen.
+    if (stlink) { try { await stlink.reset(false); } catch (e) { /* nothing more to try */ } }
   } finally {
     if (stlink) { try { await stlink.detach(); } catch (e) { /* already gone */ } }
     setDisabled(!("usb" in navigator));
@@ -398,11 +421,16 @@ async function startMirror() {
     const quiet = new libstlink.Logger(0, null);
     link = new WebStlink(quiet);
     await link.attach(device, quiet);
+    mirrorSay("Found the board's programmer. Looking for the chip…");
     await link.detect_cpu([], null);
+    // If an earlier failed flash left the chip paused, start it running again.
+    let st = await link.inspect_cpu();
+    if (!st.debug) { await link.set_debug_enable(true); st = await link.inspect_cpu(); }
+    if (st.halted) { mirrorSay("The chip was paused. Starting it…"); await link.run(); }
   } catch (err) {
     console.error(err);
     if (link) { try { await link.detach(); } catch (e) { /* ignore */ } }
-    mirrorSay(explain(err).join(" "), true);
+    mirrorSay(explain(err).join(" ") + " (" + String(err && err.message ? err.message : err) + ")", true);
     return;
   }
 
@@ -430,18 +458,31 @@ async function startMirror() {
       bytes = await link.read_memory(info.address, SIZE);
     } catch (err) {
       console.error(err);
-      if (mine.running) await stopMirror("Lost the connection to the board. Check the cable and try again.");
+      if (mine.running) await stopMirror("Lost the connection to the board. Check the cable and try again. (" + String(err && err.message ? err.message : err) + ")");
       return;
     }
     if (!mine.running) return;
     const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (data.getUint32(0, true) !== 0x48534946) { // "FISH"
-      await stopMirror("The board isn't running this build's Fish program. Flash Fish first, then try again.");
+      // Not our tank at that spot in memory. The first reads after connecting can be
+      // blank while the chip gets going, so give it a few tries before giving up.
+      if (++misses > 15) {
+        await stopMirror("The board isn't running this build's Fish program (build __BUILD__). Click Flash beside Fish, wait for “Done”, then try again.");
+        return;
+      }
+      await new Promise(r => setTimeout(r, 150));
+      continue;
+    }
+    if (data.getUint32(4, true) !== 3) {
+      await stopMirror("The board is running a different version of Fish than this page (build __BUILD__). Click Flash beside Fish, then try again.");
       return;
     }
     const seq = data.getUint32(20, true);
-    if ((seq & 1) || seq !== data.getUint32(SIZE - 4, true)) { // caught it mid-update: skip this one
-      if (++misses > 40) { await stopMirror("The board's tank doesn't seem to be running. Press the black button on the board and try again."); return; }
+    // The board updates its tank 30 times a second, so a read sometimes catches it
+    // half-updated. Skip those, unless it keeps happening: a slightly torn picture is
+    // better than none.
+    if (((seq & 1) || seq !== data.getUint32(SIZE - 4, true)) && ++misses <= 2) {
+      // skip this one
     } else {
       misses = 0;
       if (feedCount === null) feedCount = data.getUint32(8, true);
@@ -741,7 +782,13 @@ const STARTING_TINTS = [
 ];
 const NAMES = ["ADA", "BOB", "CAL", "DOT", "EVE", "FIN", "GUS", "HAL", "IVY", "JAX", "KIT", "LEO", "MAX",
   "NED", "OAK", "PIP", "RAY", "SAM", "TAD", "UMA", "VIC", "WES", "XAN", "YAZ", "ZOE"];
-const SPECIES = ["Fry", "Darter", "Striper", "Hunter", "Titan"];
+const SPECIES = ["Fry", "Squid", "Turtle", "Shark", "Ray", "Orca", "Whale"]; // the kinds of sea animal, as in fish_sim.h
+// How far each kind reaches from its middle on the standard grid (as in Fish/main.c).
+const REACH_ALONG = [6.5, 8.5, 7.0, 9.5, 9.0, 9.5, 10.0], REACH_ACROSS = [2.8, 3.5, 5.5, 5.2, 5.5, 5.6, 4.9];
+const SENSES = ["Food ahead", "Food to the right", "Group ahead", "Group to the right", "Group's heading, ahead", "Group's heading, right",
+  "Crowded ahead", "Crowded right", "Wall ahead", "Wall to the right", "Hunger", "Hurt", "Friends ahead", "Friends right",
+  "Enemies ahead", "Enemies right", "Prey ahead", "Prey right", "Threat ahead", "Threat right", "Always on"];
+const DECISIONS = ["Turn right", "Swim harder", "Bite"];
 // As in fish_sim.h:
 const EV_BIT = 0, EV_ATE = 1, EV_STARVED = 2, EV_BORN = 3, EV_LIKES = 4, EV_HATES = 5, EV_FOUGHT = 6, EV_EVOLVED = 7;
 
@@ -764,9 +811,11 @@ async function startTank() {
   // What is on screen right now: the numbers (laid out as in fish_view.h), each fish's looks,
   // and how many frames of red "ouch" flash each has left.
   let look, flash, lastHealth, nextName, cards, paused = false, ticks = 0, logEmpty = true;
+  const brainPick = $("brain-pick");
+  for (let i = 0; i < N; i++) brainPick.append(el("option", "…"));
   let board = null; // when showing a real board: { s, look, flash, prev, at, gap }
   let before = null; // the browser tank's numbers one tick ago, for drawing in-between frames
-  const HEALTH_LIMIT = 1.7; // the most health any fish can have (as in fish_sim.h)
+  const HEALTH_LIMIT = 2.1; // the most health any animal can have (as in fish_sim.h)
 
   const rgb = (c, k) => `rgb(${Math.round(c[0] * k)},${Math.round(c[1] * k)},${Math.round(c[2] * k)})`;
   const title = (name) => name.charAt(0) + name.slice(1).toLowerCase();
@@ -885,7 +934,7 @@ async function startTank() {
       else if (type === EV_LIKES) logEvent("💚", A + " now likes " + B, clock());
       else if (type === EV_HATES) logEvent("💢", A + " now hates " + B, clock());
       else if (type === EV_FOUGHT) logEvent("⚔️", A + " fought " + B, clock());
-      else if (type === EV_EVOLVED) logEvent("✨", A + " evolved into a " + SPECIES[b], clock());
+      else if (type === EV_EVOLVED) logEvent("✨", A + " evolved into " + (SPECIES[b] === "Orca" ? "an " : "a ") + SPECIES[b], clock());
       else if (type === EV_BORN) { // the fish doing best had a baby, in the dead fish's place
         look[a] = {
           tint: look[b].tint.map(v => Math.min(255, Math.max(70, v + Math.floor(Math.random() * 61) - 30))),
@@ -902,6 +951,69 @@ async function startTank() {
       if (health < lastHealth[i] - 0.15) flash[i] = 8;
       else if (flash[i]) flash[i]--;
       lastHealth[i] = health;
+    }
+  }
+
+  // Draw one sea animal on the standard grid (nose towards +x), the same shapes as
+  // animal_part() in Fish/main.c. `col` has its colours; `marking` is its own stripe or dark back.
+  function drawAnimal(kind, col, marking) {
+    const E = (cx, cy, rx, ry, fill) => { ctx.fillStyle = fill; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); };
+    const P = (pts, fill) => { ctx.fillStyle = fill; ctx.beginPath(); pts.forEach(([px, py], n) => n ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.closePath(); ctx.fill(); };
+    const R = (rx, ry, w, h, fill) => { ctx.fillStyle = fill; ctx.fillRect(rx, ry, w, h); };
+    const inside = (cx, cy, rx, ry, paint) => { ctx.save(); ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.clip(); paint(); ctx.restore(); };
+    const marks = (cx, cy, rx, ry) => {
+      if (marking === 1) inside(cx, cy, rx, ry, () => R(-0.4, -6, 1.6, 12, col.dark));
+      else if (marking === 2) inside(cx, cy, rx, ry, () => R(-12, -6, 24, 5.1, col.dark));
+    };
+    switch (kind) {
+      case 0: // Fry
+        P([[-2.5, -0.5], [-6.5, -2.7], [-6.5, 2.7], [-2.5, 0.5]], col.fin);
+        E(1, 0, 4, 2.2, col.body); marks(1, 0, 4, 2.2);
+        E(3, -0.8, 0.8, 0.8, col.eye);
+        break;
+      case 1: // Squid
+        [-1.4, 0, 1.4].forEach(c => R(-8.5, c - 0.45, 5.5, 0.9, col.fin));
+        P([[3, -1.2], [3, -3.9], [6, -1.2]], col.fin); P([[3, 1.2], [3, 3.9], [6, 1.2]], col.fin);
+        E(1.5, 0, 5, 2.2, col.body); marks(1.5, 0, 5, 2.2);
+        E(-2.2, -1, 0.8, 0.8, col.eye);
+        break;
+      case 2: // Turtle
+        [[2.8, 4.3, 1.9, 1.2], [2.8, -4.3, 1.9, 1.2], [-3.2, 3.6, 1.4, 0.9], [-3.2, -3.6, 1.4, 0.9]].forEach(f => E(f[0], f[1], f[2], f[3], col.fin));
+        R(-5.6, -0.4, 1.6, 0.8, col.fin);
+        E(5.4, 0, 1.6, 1.2, col.pale); E(5.9, -0.5, 0.5, 0.5, col.eye);
+        E(0, 0, 4.2, 3.6, col.body); marks(0, 0, 4.2, 3.6);
+        E(0, 0, 2.3, 1.9, col.dark);
+        break;
+      case 3: // Shark
+        P([[-5.5, -0.6], [-9.5, -4.6], [-9.5, -1.9], [-6, 0], [-9.5, 1.9], [-9.5, 4.6], [-5.5, 0.6]], col.fin);
+        P([[-1, -2], [-1, -5.15], [2.5, -2]], col.fin); P([[0, 2], [0, 3.8], [3, 2]], col.fin);
+        E(0.5, 0, 7, 2.3, col.body); marks(0.5, 0, 7, 2.3);
+        inside(0.5, 0, 7, 2.3, () => R(-8, 0.9, 16, 3, col.pale));
+        E(5, -0.9, 0.7, 0.7, col.eye);
+        break;
+      case 4: { // Ray
+        R(-9, -0.35, 5, 0.7, col.fin);
+        const diamond = [[5.5, 0], [0.5, -5.5], [-4.5, 0], [0.5, 5.5]];
+        P(diamond, col.body);
+        ctx.save(); ctx.beginPath(); diamond.forEach(([px, py], n) => n ? ctx.lineTo(px, py) : ctx.moveTo(px, py)); ctx.closePath(); ctx.clip();
+        R(-4.5, -0.6, 7.5, 1.2, col.dark);
+        ctx.restore();
+        E(3.2, -1.2, 0.6, 0.6, col.eye); E(3.2, 1.2, 0.6, 0.6, col.eye);
+        break;
+      }
+      case 5: // Orca
+        P([[-5.8, -0.5], [-9.5, -4.2], [-9.5, -1.27], [-6.7, 0], [-9.5, 1.27], [-9.5, 4.2], [-5.8, 0.5]], col.dark);
+        P([[-0.5, -2.6], [-0.5, -5.6], [2, -2.6]], col.dark); P([[0.5, 2.6], [0.5, 4.1], [3, 2.6]], col.dark);
+        E(0.5, 0, 7, 2.9, col.dark);
+        inside(0.5, 0, 7, 2.9, () => { R(-8, 1.3, 16, 3, col.pale); E(4, -1.3, 1.2, 0.55, col.pale); });
+        E(5.3, -0.5, 0.5, 0.5, col.eye);
+        break;
+      default: // Whale
+        P([[-6.2, -0.5], [-10, -4.68], [-10, -1.5], [-7, 0], [-10, 1.5], [-10, 4.68], [-6.2, 0.5]], col.fin);
+        P([[1, 3], [1, 4.25], [3.5, 3]], col.fin);
+        E(0.5, 0, 7.5, 3.4, col.body); marks(0.5, 0, 7.5, 3.4);
+        inside(0.5, 0, 7.5, 3.4, () => { R(-8, 1.4, 17, 3, col.fin); for (let u = -7.2; u < 8; u += 1.43) R(u, 1.4, 0.72, 3, col.pale); });
+        E(5.2, -0.5, 0.55, 0.55, col.eye);
     }
   }
 
@@ -945,36 +1057,20 @@ async function startTank() {
         dy = was[o + 3] + (dy - was[o + 3]) * blend;
       }
       const size = s[o + 4], slim = s[o + 5], energy = s[o + 6];
-      const stage = Math.round(s[o + 12]);
+      const kind = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 15])));
       const tint = flashing[i] ? [255, 40, 40] : looks[i].tint, g = flashing[i] ? 1 : 0.45 + 0.55 * energy;
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(Math.atan2(dy, dx));
-      ctx.scale(size * slim, size / slim); // the same standard fish shape as on the board, stretched
-      ctx.fillStyle = rgb(tint, g * 2 / 3); // tail and fins
-      ctx.beginPath();
-      ctx.moveTo(-3, -0.6); ctx.lineTo(-8.5, -3.9);
-      if (stage >= 2) ctx.lineTo(-5.5, 0); // Striper and up: forked tail
-      ctx.lineTo(-8.5, 3.9); ctx.lineTo(-3, 0.6); ctx.closePath(); ctx.fill();
-      if (stage >= 1) { ctx.beginPath(); ctx.moveTo(-1.5, -2); ctx.lineTo(-1.5, -4.2); ctx.lineTo(2.5, -2); ctx.closePath(); ctx.fill(); } // back fin
-      if (stage >= 3) { ctx.beginPath(); ctx.moveTo(-1, 2); ctx.lineTo(-1, 3.5); ctx.lineTo(2, 2); ctx.closePath(); ctx.fill(); }          // belly fin
-      ctx.fillStyle = rgb(tint, g); // body
-      if (stage >= 4) { ctx.beginPath(); ctx.moveTo(5.5, -1.05); ctx.lineTo(8.5, 0); ctx.lineTo(5.5, 1.05); ctx.closePath(); ctx.fill(); }   // Titan's horn
-      ctx.beginPath(); ctx.ellipse(1, 0, 5, 2.6, 0, 0, Math.PI * 2); ctx.fill();
-      if (looks[i].marking) {
-        ctx.save();
-        ctx.clip();
-        ctx.fillStyle = rgb(tint, g * 2 / 5);
-        if (looks[i].marking === 1) ctx.fillRect(-0.4, -3, 1.6, 6);
-        else ctx.fillRect(-5, -3, 12, 2.1);
-        ctx.restore();
-      }
-      ctx.fillStyle = "rgb(10,10,30)"; // eye
-      ctx.beginPath(); ctx.arc(3.6, -1, 0.95, 0, Math.PI * 2); ctx.fill();
+      ctx.scale(size * slim, size / slim); // the same standard animal shapes as on the board, stretched
+      drawAnimal(kind, {
+        body: rgb(tint, g), fin: rgb(tint, g * 2 / 3), dark: rgb(tint, g * 2 / 5),
+        pale: rgb(tint.map(v => (v * g + 510) / 3), 1), eye: "rgb(10,10,30)",
+      }, looks[i].marking);
       ctx.restore();
 
       // Nametag: above the fish, or below it at the top of the tank (as on the board).
-      const reach = 8.5 * size * slim + 2, above = y - reach - 8 >= 0;
+      const reach = Math.max(REACH_ALONG[kind] * size * slim, REACH_ACROSS[kind] * size / slim) + 2, above = y - reach - 8 >= 0;
       ctx.fillStyle = rgb(looks[i].tint.map(v => (v + 255) / 2), 1);
       ctx.fillText(looks[i].name, Math.min(TANK_W - 10, Math.max(10, x)), above ? y - reach - 2 : y + reach + 8);
     }
@@ -988,10 +1084,11 @@ async function startTank() {
     $("c-rich").textContent = Math.round(s[5] * 100) + "%";
     for (let i = 0; i < N; i++) {
       const o = FISH_AT + i * PER, c = cards[i], health = s[o + 7], hunger = 1 - s[o + 6], kills = Math.round(s[o + 10]);
-      const stage = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 12])));
+      const kind = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 15]))), level = Math.round(s[o + 12]) + 1;
       c.dot.style.background = rgb(looks[i].tint, 1);
       c.who.textContent = looks[i].name;
-      c.extra.textContent = SPECIES[stage] + " (level " + (stage + 1) + ") · size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
+      c.extra.textContent = SPECIES[kind] + " (level " + level + ") · size " + s[o + 4].toFixed(1) + (kills ? " · ate " + kills : "");
+      if (brainPick.options[i].textContent !== looks[i].name + " the " + SPECIES[kind]) brainPick.options[i].textContent = looks[i].name + " the " + SPECIES[kind];
       const most = s[o + 14] || 1;
       c.health.style.width = Math.round(Math.max(0, health) / HEALTH_LIMIT * 100) + "%";
       c.healthCap.style.width = Math.round(most / HEALTH_LIMIT * 100) + "%";
@@ -1011,6 +1108,83 @@ async function startTank() {
       }
     }
   }
+
+  // ----- a look inside one brain -----
+  const N_IN = sim.web_n_in(), N_HID = sim.web_n_hid(), N_OUT = sim.web_n_out();
+  const brainCanvas = $("brain"), bctx = brainCanvas.getContext("2d");
+  function drawBrain() {
+    const W = brainCanvas.clientWidth, H = brainCanvas.clientHeight, ratio = window.devicePixelRatio || 1;
+    if (!W) return;
+    if (brainCanvas.width !== Math.round(W * ratio)) { brainCanvas.width = Math.round(W * ratio); brainCanvas.height = Math.round(H * ratio); }
+    bctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    bctx.clearRect(0, 0, W, H);
+    const text = css("--text"), muted = css("--muted"), plus = css("--series-1"), minus = css("--series-2");
+    bctx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    bctx.textBaseline = "middle";
+    if (board) {
+      bctx.fillStyle = muted;
+      bctx.textAlign = "center";
+      bctx.fillText("Brains are shown for the browser's tank. Switch back from the board's tank to watch one.", W / 2, H / 2, W - 20);
+      return;
+    }
+    const who = Math.min(N - 1, Math.max(0, brainPick.selectedIndex));
+    const mem = sim.memory.buffer;
+    const w = new Float32Array(mem, sim.web_brain(who), N_HID * N_IN + N_OUT * (N_HID + 1));
+    const seen = new Float32Array(mem, sim.web_seen() + who * N_IN * 4, N_IN);
+    const thought = new Float32Array(mem, sim.web_thought() + who * N_HID * 4, N_HID);
+    const decided = new Float32Array(mem, sim.web_decided() + who * N_OUT * 4, N_OUT);
+
+    const narrow = W < 520;
+    const xIn = narrow ? 118 : 170, xOut = W - (narrow ? 78 : 110), xHid = (xIn + xOut) / 2;
+    const yOf = (n, count) => 14 + (H - 28) * (count === 1 ? 0.5 : n / (count - 1));
+    const yHid = (h) => yOf(h + 1.5, N_HID + 3), yOut = (o) => yOf(o + 2, N_OUT + 4);
+    const strength = (v) => Math.min(1, Math.abs(v));
+
+    // Connections: brightness shows how much signal is flowing along each one right now.
+    const wire = (x0, y0, x1, y1, weight, signal) => {
+      if (Math.abs(weight) < 0.12) return; // too weak to matter: leave it out
+      bctx.strokeStyle = signal >= 0 ? plus : minus;
+      bctx.globalAlpha = 0.07 + 0.93 * Math.min(1, Math.abs(signal) * 1.5);
+      bctx.lineWidth = 0.6 + Math.min(2.4, Math.abs(weight));
+      bctx.beginPath(); bctx.moveTo(x0, y0); bctx.lineTo(x1, y1); bctx.stroke();
+    };
+    for (let h = 0; h < N_HID; h++)
+      for (let k = 0; k < N_IN; k++) wire(xIn, yOf(k, N_IN), xHid, yHid(h), w[h * N_IN + k], w[h * N_IN + k] * seen[k]);
+    for (let o = 0; o < N_OUT; o++)
+      for (let h = 0; h < N_HID; h++) {
+        const weight = w[N_HID * N_IN + o * (N_HID + 1) + h];
+        wire(xHid, yHid(h), xOut, yOut(o), weight, weight * thought[h]);
+      }
+    bctx.globalAlpha = 1;
+
+    // Cells: filled by how strongly each is firing, blue for positive, orange for negative.
+    const cell = (x, y, value, r) => {
+      bctx.beginPath(); bctx.arc(x, y, r, 0, Math.PI * 2);
+      bctx.fillStyle = css("--card"); bctx.fill();
+      bctx.globalAlpha = strength(value);
+      bctx.fillStyle = value >= 0 ? plus : minus; bctx.fill();
+      bctx.globalAlpha = 1;
+      bctx.lineWidth = 1; bctx.strokeStyle = muted; bctx.stroke();
+    };
+    bctx.textAlign = "right";
+    for (let k = 0; k < N_IN; k++) {
+      cell(xIn, yOf(k, N_IN), seen[k], 5);
+      bctx.fillStyle = Math.abs(seen[k]) > 0.05 ? text : muted;
+      bctx.fillText(SENSES[k] || "", xIn - 10, yOf(k, N_IN), xIn - 14);
+    }
+    for (let h = 0; h < N_HID; h++) cell(xHid, yHid(h), thought[h], 7);
+    bctx.textAlign = "left";
+    for (let o = 0; o < N_OUT; o++) {
+      cell(xOut, yOut(o), decided[o], 8);
+      bctx.fillStyle = text;
+      bctx.fillText(DECISIONS[o], xOut + 13, yOut(o) - 7);
+      bctx.fillStyle = muted;
+      const v = decided[o];
+      const said = o === 0 ? (v > 0.08 ? "right" : v < -0.08 ? "left" : "straight") : o === 1 ? Math.round((v + 1) * 50) + "%" : (v > 0 ? "yes" : "no");
+      bctx.fillText(said, xOut + 13, yOut(o) + 7);
+    }
+  }
+  setInterval(drawBrain, 100);
 
   // Run the browser's tank at the board's pace (30 ticks a second) unless a real board is showing.
   let owed = 0, last = performance.now(), sinceRoster = 0;
