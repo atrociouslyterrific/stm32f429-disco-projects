@@ -123,7 +123,7 @@ go.addEventListener("click", async () => {
     const resp = await fetch("Blink.bin?t=" + Date.now(), { cache: "no-store" });
     if (!resp.ok) throw new Error("Blink.bin download failed: HTTP " + resp.status);
     const data = new Uint8Array(await resp.arrayBuffer());
-    logger.info(`Blink.bin: ${data.length} bytes`);
+    logger.info(`Page build __BUILD__ · Blink.bin: ${data.length} bytes`);
 
     say("Choose “STM32 STLink” in the pop-up, then click Connect.");
     const device = await navigator.usb.requestDevice({ filters: libstlink.usb.filters });
