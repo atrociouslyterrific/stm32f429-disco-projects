@@ -8,6 +8,10 @@ extern uint32_t _stack_top, _data_load, _data_start, _data_end, _bss_start, _bss
 int main(void);
 
 void Reset_Handler(void) {
+  // Switch on the chip's maths unit (FPU) so programs can use decimal numbers quickly.
+  *(volatile uint32_t *)0xE000ED88 |= 0xFu << 20;
+  __asm__ volatile("dsb\nisb");
+
   // Copy starting values of variables from flash into RAM, and zero the rest.
   uint32_t *src = &_data_load;
   for (uint32_t *dst = &_data_start; dst < &_data_end;) *dst++ = *src++;

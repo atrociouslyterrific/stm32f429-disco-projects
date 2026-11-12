@@ -129,6 +129,15 @@ static void set_area(int x, int y, int w, int h) {
   command(0x2C);
 }
 
+void lcd_area(int x, int y, int w, int h) { set_area(x, y, w, h); }
+
+void lcd_done(void) {
+  while (!(SPI5_SR & 2)) {}    // last byte handed over...
+  while (SPI5_SR & (1u << 7)) {} // ...and fully sent
+  (void)SPI5_DR;               // lcd_push ignores what comes back; clear that out
+  (void)SPI5_SR;
+}
+
 void lcd_fill_rect(int x, int y, int w, int h, uint16_t color) {
   // keep the rectangle on the screen
   if (x < 0) { w += x; x = 0; }

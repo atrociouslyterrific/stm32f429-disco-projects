@@ -28,4 +28,20 @@ void lcd_fill_rect(int x, int y, int w, int h, uint16_t color);
 // 8*scale tall, including the gap. fg is the letter colour, bg the colour behind it.
 void lcd_text(int x, int y, const char *text, int scale, uint16_t fg, uint16_t bg);
 
+// --- Fast drawing, for moving pictures ---
+// 1. lcd_area(...) picks a rectangle.  2. lcd_push(colour) once per dot, left to right,
+// top to bottom.  3. lcd_done() when the rectangle is full.
+void lcd_area(int x, int y, int w, int h);
+void lcd_done(void);
+
+#define LCD_SPI_SR (*(volatile uint32_t *)0x40015008)
+#define LCD_SPI_DR (*(volatile uint32_t *)0x4001500C)
+
+static inline void lcd_push(uint16_t color) {
+  while (!(LCD_SPI_SR & 2)) {} // wait for room, then send the two halves of the colour
+  LCD_SPI_DR = color >> 8;
+  while (!(LCD_SPI_SR & 2)) {}
+  LCD_SPI_DR = color & 0xFF;
+}
+
 #endif

@@ -9,6 +9,11 @@ sends it to the board.
 
 - **Blink** — the two lights beside the screen take turns: green, then red, half a second each.
 - **HelloScreen** — lights up the screen: a greeting, three colour bars and a seconds counter.
+- **Fish** — a school of twelve fish. Each has its own small neural-network brain that
+  senses food, the other fish and the walls, and decides how to turn and swim. The brains
+  are trained on GitHub during every build (`tools/train_fish.c`) and keep evolving on the
+  board: a fish that starves is replaced by a baby of the best-doing fish, with a slightly
+  changed brain. The blue button drops food.
 
 Each program is a folder with a `main.c`. Code they share lives in `common/`: the startup
 code, the screen driver (`lcd.c`) and the font (`font.c`, drawn as pictures you can edit).
