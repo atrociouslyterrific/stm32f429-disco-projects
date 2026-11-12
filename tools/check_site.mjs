@@ -54,11 +54,16 @@ const events = () => new Int32Array(sim.memory.buffer, sim.web_events(), 1 + sim
 
 // Let a tank live for five minutes of tank time, with someone feeding it now and then.
 sim.web_init(12345);
+const NAMES3 = ["ADA", "BOB", "CAL", "DOT", "EVE", "FIN", "GUS", "HAL", "IVY", "JAX"];
+NAMES3.forEach((n, i) => sim.web_set_name(i, n.charCodeAt(0), n.charCodeAt(1), n.charCodeAt(2)));
+const said = [];
+const cstr = (ptr) => { const b = new Uint8Array(sim.memory.buffer, ptr, 64); let t = ""; for (let i = 0; b[i]; i++) t += String.fromCharCode(b[i]); return t; };
 const seenEvents = new Array(EVENTS.length).fill(0), everKinds = new Set();
 const TICKS = 30 * 300;
 for (let t = 0; t < TICKS; t++) {
   if (t % 120 === 0) sim.web_feed_anywhere();
   sim.web_step();
+  while (sim.web_talk_take()) said.push(sim.web_talk_speaker() + ">" + sim.web_talk_listener() + " " + cstr(sim.web_talk_text()));
   const ev = events();
   for (let n = 0; n < ev[0]; n++) {
     const type = ev[1 + n * 4];
@@ -80,6 +85,14 @@ console.log("  food eaten " + s[1] + ", animals eaten " + s[2] + ", starved " + 
 console.log("  events: " + EVENTS.map((e, n) => e + " " + seenEvents[n]).join(", "));
 console.log("  living now: " + KINDS.map((k, n) => now[n] + " " + k).join(", "));
 console.log("  kinds evolved into at some point: " + ([...everKinds].sort().map(k => KINDS[k]).join(", ") || "none"));
+
+// Talking
+if (sim.web_talk_available()) {
+  console.log("  talking: " + said.length + " lines in 5 minutes, for example:");
+  for (const line of said.slice(0, 12)) console.log("    " + line);
+  if (!said.length) problem("the talk model is there but nobody said anything in 5 minutes");
+  if (said.some(l => /[^A-Z0-9 !?:.+\->]/.test(l))) problem("a line has characters the board can't draw");
+} else console.log("  talking: no talk model trained yet, so the animals are quiet");
 
 // Genetics and families
 const GENE_RANGES = [[21, 0.85, 1.25, "speed"], [5, 0.8, 1.25, "shape"], [22, 0.85, 1.3, "build"], [23, 0.8, 1.2, "thrift"], [24, 0, 1, "boldness"],
@@ -119,7 +132,7 @@ if (senseLabels.length !== sim.web_n_in()) problem("the page names " + senseLabe
 
 // 6. The board's "window" for the website must be the size the page will ask for.
 const status = JSON.parse(fs.readFileSync(path.join(site, "status.json"), "utf8"));
-const expected = 24 + VIEW * 4 + N * 8 + 4 + 8 * 40 + 4;
+const expected = 24 + VIEW * 4 + N * 8 + 4 + 8 * 40 + 4 + 4 + 200 * 16; // ...and the family history
 if (!status.fish_mirror) problem("status.json does not say where the board's tank lives");
 else if (status.fish_mirror.size !== expected) problem("the board's tank block is " + status.fish_mirror.size + " bytes but the page expects " + expected);
 else console.log("board tank block: " + expected + " bytes, as the page expects");

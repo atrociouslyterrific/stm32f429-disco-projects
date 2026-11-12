@@ -9,6 +9,7 @@
 
 #include "fish_sim.h"
 #include "fish_view.h"
+#include "fish_talk.h"
 #include "fish_brains.h"
 
 #define EXPORT __attribute__((visibility("default")))
@@ -47,11 +48,13 @@ EXPORT void web_init(unsigned seed) {
   for (int i = 0; i < N_FISH; i++)
     for (int w = 0; w < N_WEIGHTS; w++) tank.fish[i].brain.w[w] = FISH_BRAINS[i][w];
   born = 0;
+  talk_init(seed ^ 0x5EA5EA5Eu);
   publish();
 }
 
 EXPORT void web_step(void) {
   tank_step(&tank);
+  talk_notice(&tank); // before the dead are replaced, so their friends can mourn them
   for (int i = 0; i < N_FISH; i++) {
     tank.fish[i].score *= 0.9995f; // old successes slowly count for less (as on the board)
     if (tank.fish[i].dead) {       // the best fish has a baby in its place
@@ -59,6 +62,8 @@ EXPORT void web_step(void) {
       born++;
     }
   }
+  talk_notice(&tank); // ...and again for the births
+  talk_work(&tank, 24); // a few characters each tick, like the board (only quicker)
   publish();
 }
 
@@ -95,3 +100,19 @@ EXPORT int web_n_h1(void) { return N_H1; }
 EXPORT int web_n_h2(void) { return N_H2; }
 EXPORT int web_n_weights(void) { return N_WEIGHTS; }
 EXPORT int web_n_out(void) { return N_OUT; }
+
+// Talking (see Fish/fish_talk.h). The page sets each animal's name, collects finished lines
+// with web_talk_take(), and reads who is speaking right now with web_talk_now().
+static TalkLine taken;
+static char so_far[TALK_LINE + 1];
+static int now_speaker, now_listener;
+EXPORT int web_talk_available(void) { return talk_available(); }
+EXPORT void web_set_name(int i, int a, int b, int c) { char n[3] = {(char)a, (char)b, (char)c}; talk_set_name(i, n); }
+EXPORT void web_talk_quiet(int on) { talk_quiet(on); }
+EXPORT int web_talk_take(void) { return talk_take(&taken); }
+EXPORT int web_talk_speaker(void) { return taken.speaker; }
+EXPORT int web_talk_listener(void) { return taken.listener; }
+EXPORT char *web_talk_text(void) { return taken.text; }
+EXPORT int web_talk_now(void) { return talk_current(&now_speaker, &now_listener, so_far); }
+EXPORT int web_talk_now_speaker(void) { return now_speaker; }
+EXPORT char *web_talk_now_text(void) { return so_far; }

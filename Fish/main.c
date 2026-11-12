@@ -31,6 +31,7 @@
 #include "fish_sim.h"
 #include "fish_view.h"
 #include "fish_brains.h"
+#include "fish_talk.h"
 
 // Screen layout, top to bottom
 #define TANK_ROWS 224 // the water and seafloor
@@ -62,6 +63,12 @@ static Tank tank;
 // reads this block of memory straight out of the running chip through the same USB cable
 // used for flashing, and can ask for food by writing to the "feed" numbers.
 #define MIRROR_LOG 8
+#define HISTORY 200
+typedef struct {
+  uint16_t id, mum, dad, gen;
+  uint8_t family, kind, r, g, b, marking, dead, spare;
+  char name[4];
+} Ancestor; // 16 bytes
 struct Mirror {
   uint32_t magic;            // spells "FISH", so the website knows it found the right thing
   uint32_t version;
@@ -73,6 +80,10 @@ struct Mirror {
   uint32_t log_count;        // how many log lines there have ever been
   char log[MIRROR_LOG][LOG_CHARS]; // the most recent ones, going round and round
   uint32_t seq_end;          // same as seq once an update is complete
+  // The family history: every founder, and the most recent animals born after them, so
+  // the website can draw this tank's whole family tree (not just who is alive now).
+  uint32_t history_count;
+  Ancestor history[HISTORY];
 };
 struct Mirror fish_mirror;
 
@@ -125,6 +136,7 @@ static int clamp_int(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi :
 // Give fish i the next name on the list, and make its nametag picture from the font.
 static void give_name(int i) {
   for (int c = 0; c < 4; c++) look[i].name[c] = NAMES[next_name][c];
+  talk_set_name(i, look[i].name);
   next_name = (next_name + 1) % N_NAMES;
   for (int row = 0; row < TAG_H; row++) {
     uint32_t dots = 0;
@@ -571,10 +583,36 @@ static void show_number(int x, uint32_t n) {
 
 // ---------- what happened this tick ----------
 
+// ---------- the family history (for the website's family tree) ----------
+
+static uint32_t history_next = N_FISH; // where the next newborn is written (founders keep 0..9)
+
+static Ancestor *ancestor(uint16_t id) {
+  for (uint32_t k = 0; k < fish_mirror.history_count; k++)
+    if (fish_mirror.history[k].id == id) return &fish_mirror.history[k];
+  return 0;
+}
+
+// Write animal i into the family history (the oldest non-founder is forgotten when full).
+static void remember(int i) {
+  const Fish *f = &tank.fish[i];
+  uint32_t k = f->gen == 0 && fish_mirror.history_count < N_FISH ? fish_mirror.history_count : history_next;
+  if (f->gen != 0 || fish_mirror.history_count >= N_FISH) {
+    history_next = history_next + 1 >= HISTORY ? N_FISH : history_next + 1;
+  }
+  Ancestor *a = &fish_mirror.history[k];
+  a->id = f->id; a->mum = f->mum; a->dad = f->dad; a->gen = f->gen;
+  a->family = f->family; a->kind = f->kind; a->r = f->g.r; a->g = f->g.g; a->b = f->g.b;
+  a->marking = f->g.marking; a->dead = 0; a->spare = 0;
+  for (int c = 0; c < 4; c++) a->name[c] = look[i].name[c];
+  if (k >= fish_mirror.history_count) fish_mirror.history_count = k + 1;
+}
+
 // A baby has taken a dead animal's place in the tank's rules (its colour and pattern come
 // from its genes); now give it a name.
 static void dress_baby(int baby) {
   give_name(baby);
+  remember(baby);
   tint_changed(baby);
 
   art[baby].last_health = 1.0f;
@@ -594,7 +632,12 @@ static void report(const Event *e) {
     case EV_LIKES:   log_add(a, " NOW LIKES ", b); break;
     case EV_HATES:   log_add(a, " NOW HATES ", b); break;
     case EV_FOUGHT:  log_add(a, " FOUGHT ", b); break;
-    case EV_EVOLVED: log_add(a, e->b == K_ORCA ? " EVOLVED INTO AN " : " EVOLVED INTO A ", b); break;
+    case EV_EVOLVED: {
+      log_add(a, e->b == K_ORCA ? " EVOLVED INTO AN " : " EVOLVED INTO A ", b);
+      Ancestor *me = ancestor(tank.fish[e->a].id);
+      if (me) me->kind = e->b;
+      break;
+    }
     case EV_BORN:
       dress_baby(e->a); // the dead animal's name is used up to here; now the baby gets its own
       {
@@ -653,12 +696,24 @@ static void one_tick(int has_touch, uint32_t ticks, int *button_was, int *touch_
     art[i].old_dx = tank.fish[i].dx; art[i].old_dy = tank.fish[i].dy;
   }
   tank_step(&tank);
+  talk_notice(&tank); // before the dead are replaced, so their friends can mourn them
   for (int i = 0; i < N_FISH; i++) {
     tank.fish[i].score *= 0.9995f; // old successes slowly count for less
-    if (tank.fish[i].dead) tank_replace(&tank, i); // the best fish has a baby in its place
+    if (tank.fish[i].dead) {
+      Ancestor *gone = ancestor(tank.fish[i].id);
+      if (gone) gone->dead = 1;
+      tank_replace(&tank, i); // the best fish has a baby in its place
+    }
   }
   for (int e = 0; e < tank.n_events; e++) report(&tank.events[e]);
   for (int i = 0; i < N_FISH; i++) after_tick(i);
+
+  // Talking: one character a tick (each takes the model a few milliseconds), and any
+  // finished line goes in the log as "ADA: ...".
+  talk_notice(&tank);
+  talk_work(&tank, 1);
+  TalkLine line;
+  while (talk_take(&line)) log_add(look[line.speaker].name, ": ", line.text);
 }
 
 int main(void) {
@@ -670,9 +725,10 @@ int main(void) {
   RCC_AHB1ENR |= 1u << 0; // port A, for the button
 
   fish_mirror.magic = 0x48534946u; // "FISH"
-  fish_mirror.version = 5;
+  fish_mirror.version = 6;
 
   tank_init(&tank, 0x1234ABCDu);
+  talk_init(0x7A1C0FFEu);
   scenery_init();
   Rect whole_tank = {0, 0, LCD_W - 1, TANK_ROWS - 1};
   paint_background(whole_tank);
@@ -689,6 +745,7 @@ int main(void) {
     for (int w = 0; w < N_WEIGHTS; w++) tank.fish[i].brain.w[w] = FISH_BRAINS[i][w];
     give_name(i);
     tint_changed(i);
+    remember(i);
     art[i].last_health = tank.fish[i].health;
     art[i].old_x = tank.fish[i].x; art[i].old_y = tank.fish[i].y;
     art[i].old_dx = tank.fish[i].dx; art[i].old_dy = tank.fish[i].dy;

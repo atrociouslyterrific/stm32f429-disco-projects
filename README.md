@@ -78,3 +78,15 @@ by hand from the Actions tab ("Run workflow", with a number of minutes). Each ru
 2. publishes its progress every 15 seconds to the `status` branch, which the website shows;
 3. saves the population, the ten brains the board uses, and a summary back to the release;
 4. triggers a build, so the board program and the website get the new brains.
+
+## Talking
+
+The animals talk, using our own small language model (`tools/train_talk.py`): a
+character-level transformer trained from scratch on GitHub by the **Train fish talk**
+workflow, on 120,000 practice lines written by `tools/talk_corpus.py` for every situation,
+species and personality. It is small enough to run on the board: `Fish/fish_talk.c` runs it
+there and, compiled for web browsers, on the website. Each line, the model is told what
+happened, who is speaking (species and personality) and how they feel about who they are
+talking to; the other animal then replies, having heard it. On the board the lines appear
+in the log; on the website as speech bubbles. The training workflow checks that the C code
+gives the same answers as the trained model before the model is used.

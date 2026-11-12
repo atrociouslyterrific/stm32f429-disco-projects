@@ -164,6 +164,10 @@
   h3 { font-size: .95rem; margin: 18px 0 6px; }
   ul.how { margin: 8px 0 0; padding-left: 1.2em; color: var(--muted); font-size: .92rem; }
   ul.how li { margin-bottom: 4px; }
+  ul.talk-samples { list-style: none; margin: 0; padding: 0; }
+  ul.talk-samples li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
+  ul.talk-samples li:last-child { border-bottom: 0; }
+  ul.talk-samples code { display: block; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
   [hidden] { display: none !important; }
   ol.events { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; font-size: .88rem; }
   ol.events li { display: flex; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--line); }
@@ -194,7 +198,7 @@
   <p class="sub">Programs for the STM32F429I-DISCO board: put one on the board, see how the latest build went,
     watch the fish, and follow their training.</p>
   <nav class="jump" aria-label="Sections">
-    <a href="#flash">Flash</a><a href="#tank-card">Tank</a><a href="#evolution">Evolution</a><a href="#genes">Genes</a>
+    <a href="#flash">Flash</a><a href="#tank-card">Tank</a><a href="#talk-card">Talk</a><a href="#evolution">Evolution</a><a href="#genes">Genes</a>
     <a href="#families-card">Families</a><a href="#tree-card">Family tree</a><a href="#brain-card">Brain</a><a href="#training-card">Training</a>
   </nav>
   <p id="newer" class="pill busy" style="white-space:normal;border-radius:10px;padding:8px 14px;margin:0 0 16px" hidden>
@@ -287,6 +291,26 @@
     <h3>What's been happening</h3>
     <ol class="events" id="events"><li class="muted">Nothing yet. Give them a minute.</li></ol>
     <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card" id="talk-card">
+    <h2>How they talk</h2>
+    <p class="lead">The animals speak with our own language model, built from scratch and trained on GitHub. It writes one
+      character at a time, and it's small enough to run on the board itself. Each time, it's told what just happened, what
+      kind of animal is speaking, its personality, and how it feels about who it's talking to; then the other animal replies,
+      having heard it. It learned from 120,000 practice lines written for each species and personality.</p>
+    <p id="talk-live" class="pill busy" style="white-space:normal;border-radius:10px;padding:6px 12px;margin:0 0 12px" hidden></p>
+    <p id="talk-summary" class="small" style="margin:0 0 8px">Loading…</p>
+    <div class="legend">
+      <span><i style="border-color:var(--series-2)"></i>Lines it trains on</span>
+      <span><i style="border-color:var(--series-1)"></i>Lines it never sees (the real test)</span>
+    </div>
+    <div class="chart" id="talk-chart"><svg role="img" aria-label="Line chart of how surprised the talk model is by the next character, falling as it trains" style="height:200px"></svg><div class="tip" id="talk-tip"></div></div>
+    <p class="muted small" style="margin:6px 0 0">The chart shows how surprised the model is by the next character: lower means it has learned more.</p>
+    <h3>What it writes</h3>
+    <ul id="talk-samples" class="talk-samples"></ul>
+    <p class="muted small" style="margin:10px 0 0">It trains by itself when what it learns from changes. To give it more time,
+      <a href="https://github.com/__REPO__/actions/workflows/train_talk.yml">start a talk training run on GitHub</a> and watch it here.</p>
   </div>
 
   <div class="card" id="evolution">
@@ -546,8 +570,9 @@ async function startMirror() {
   if (!info || !tank) { mirrorSay("The page hasn't finished loading. Try again in a moment.", true); return; }
   const { N, VIEW } = tank.layout;
   const VIEW_AT = 24, LOOKS_AT = VIEW_AT + VIEW * 4, LOG_COUNT_AT = LOOKS_AT + N * 8, LOG_AT = LOG_COUNT_AT + 4;
-  const SIZE = LOG_AT + MIRROR_LOG_LINES * MIRROR_LOG_CHARS + 4;
-  if (info.size !== SIZE) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
+  const SIZE = LOG_AT + MIRROR_LOG_LINES * MIRROR_LOG_CHARS + 4; // the part read ten times a second
+  const HISTORY = 200, HISTORY_AT = SIZE; // then the family history (read every few seconds)
+  if (info.size !== SIZE + 4 + HISTORY * 16) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
 
   let link;
   try {
@@ -608,7 +633,7 @@ async function startMirror() {
       await new Promise(r => setTimeout(r, 150));
       continue;
     }
-    if (data.getUint32(4, true) !== 5) { // the version number Fish/main.c puts in fish_mirror
+    if (data.getUint32(4, true) !== 6) { // the version number Fish/main.c puts in fish_mirror
       await stopMirror("The board is running a different version of Fish than this page (build __BUILD__). Click Flash beside Fish, then try again.");
       return;
     }
@@ -633,6 +658,23 @@ async function startMirror() {
         flash.push(bytes[at + 7]);
       }
       tank.showBoard({ s, look, flash });
+
+      // Every few seconds, the board's family history too (for the family tree).
+      if (!mine.historyAt || performance.now() - mine.historyAt > 3000) {
+        mine.historyAt = performance.now();
+        try {
+          const h = await link.read_memory(info.address + HISTORY_AT, 4 + HISTORY * 16);
+          const hv = new DataView(h.buffer, h.byteOffset, h.byteLength), count = Math.min(HISTORY, hv.getUint32(0, true));
+          const people = [];
+          for (let k = 0; k < count; k++) {
+            const at = 4 + k * 16;
+            people.push({ id: hv.getUint16(at, true), mum: hv.getUint16(at + 2, true), dad: hv.getUint16(at + 4, true),
+              gen: hv.getUint16(at + 6, true), family: h[at + 8], kind: h[at + 9], tint: [h[at + 10], h[at + 11], h[at + 12]],
+              marking: h[at + 13], dead: !!h[at + 14], name: String.fromCharCode(h[at + 16], h[at + 17], h[at + 18]).replace(/[^A-Z]/g, "?") });
+          }
+          tank.boardHistory(people);
+        } catch (e) { console.error(e); }
+      }
       mirrorSay("Connected. Showing the tank on your board.");
 
       // New lines in the board's log
@@ -859,6 +901,86 @@ async function pollTraining() {
 pollTraining();
 setInterval(pollTraining, 15000);
 
+// ---------- the talk model: how it was trained ----------
+
+let talkShownStep = -1;
+
+function showTalk(t) {
+  if (!t) return;
+  const running = t.state === "training" && Date.now() / 1000 - t.updated < 120;
+  $("talk-live").hidden = !running;
+  if (running) $("talk-live").textContent = "Training on GitHub right now: step " + t.step.toLocaleString() + ", " +
+    t.minutes + " of " + t.budget_minutes + " minutes. The samples below update as it learns.";
+  if (t.state !== "training" && t.step < talkShownStep) return;
+  talkShownStep = t.step;
+  const last = t.history && t.history.length ? t.history[t.history.length - 1] : null;
+  $("talk-summary").textContent = (t.params ? t.params.toLocaleString() + " numbers" : "A small model") +
+    (t.layers ? " in " + t.layers + " layers, reading " + t.memory + " characters back" : "") + ". " +
+    (running ? "So far: " : "Trained for ") + t.step.toLocaleString() + " steps (" + t.minutes + " minutes)" +
+    (last ? "; its surprise at the next character fell to " + last[2].toFixed(2) + " on lines it never trained on." : ".");
+
+  if (t.history && t.history.length > 1) drawTalkChart(t.history);
+  const list = $("talk-samples");
+  list.replaceChildren();
+  for (const [prompt, line] of t.samples || []) {
+    const li = el("li");
+    li.append(el("code", prompt.trim()), el("b", " " + line));
+    list.append(li);
+  }
+}
+
+function drawTalkChart(pts) {
+  const box = $("talk-chart"), root = box.querySelector("svg");
+  root.replaceChildren();
+  const W = box.clientWidth, H = 200;
+  if (W < 200) return;
+  const m = { l: 40, r: W < 520 ? 12 : 110, t: 10, b: 34 };
+  root.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const x0 = pts[0][0], x1 = pts[pts.length - 1][0];
+  const hi = Math.max(...pts.map(p => Math.max(p[1], p[2])));
+  const step = niceStep(hi, 4), y1 = Math.ceil(hi / step) * step;
+  const X = (v) => m.l + (v - x0) / Math.max(1, x1 - x0) * (W - m.l - m.r), Y = (v) => H - m.b - v / y1 * (H - m.t - m.b);
+  for (let v = 0; v <= y1 + 1e-9; v += step) {
+    root.append(svg("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid"), "stroke-width": 1 }));
+    const t = svg("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" });
+    t.textContent = v.toFixed(1);
+    root.append(t);
+  }
+  const xt = svg("text", { x: (m.l + W - m.r) / 2, y: H - 2, "text-anchor": "middle" });
+  xt.textContent = "Training step";
+  root.append(xt);
+  for (const [col, color, label] of [[1, "--series-2", "Lines it trains on"], [2, "--series-1", "Lines it never sees"]]) {
+    root.append(svg("path", { d: pts.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[col]).toFixed(1)).join(" "),
+      fill: "none", stroke: css(color), "stroke-width": 2, "stroke-linejoin": "round" }));
+    if (m.r > 50) {
+      const t = svg("text", { x: W - m.r + 8, y: Y(pts[pts.length - 1][col]) + (col === 1 ? -4 : 10) });
+      t.textContent = label;
+      root.append(t);
+    }
+  }
+  const tip = $("talk-tip"), catcher = svg("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  root.append(catcher);
+  catcher.addEventListener("pointerleave", () => { tip.style.display = "none"; });
+  catcher.addEventListener("pointermove", (ev) => {
+    const r = root.getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width);
+    let near = pts[0];
+    for (const p of pts) if (Math.abs(X(p[0]) - px) < Math.abs(X(near[0]) - px)) near = p;
+    tip.replaceChildren(el("b", "Step " + near[0].toLocaleString()), el("div", "Lines it trains on: " + near[1].toFixed(2)), el("div", "Lines it never sees: " + near[2].toFixed(2)));
+    tip.style.display = "block";
+    tip.style.left = Math.min(W - tip.offsetWidth, X(near[0]) + 12) + "px";
+    tip.style.top = "8px";
+  });
+}
+
+async function pollTalk() {
+  try {
+    const r = await fetch("https://raw.githubusercontent.com/" + REPO + "/status-talk/talk.json?t=" + Date.now(), { cache: "no-store" });
+    if (r.ok) showTalk(await r.json());
+  } catch (e) { /* nothing to show right now */ }
+}
+pollTalk();
+setInterval(pollTalk, 30000);
+
 // ---------- what the last build published ----------
 
 async function loadPublished() {
@@ -879,6 +1001,8 @@ async function loadPublished() {
     window.fishMirrorInfo = s.fish_mirror || null; // where the board's tank lives in its memory
 
     showTraining(s.fish || null);
+    if (s.talk) showTalk(s.talk);
+    else if (talkShownStep < 0) $("talk-summary").textContent = "Not trained yet: the animals stay quiet until the first training run on GitHub finishes.";
     return s;
   } catch (e) {
     $("training-summary").textContent = "Couldn't load training results.";
@@ -1095,12 +1219,64 @@ async function startTank() {
   }
   const clock = () => { const s = Math.floor(ticks / 30); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
 
+  // ----- talking -----
+  // Finished lines arrive from the fish rules (Fish/fish_talk.c, in fish.wasm); a line
+  // shows as a speech bubble over the speaker for a few seconds, and goes in the log.
+  const talkOn = !!sim.web_talk_available();
+  const bubbles = new Array(N).fill(null); // { text, until }
+  const cString = (ptr) => {
+    const bytes = new Uint8Array(sim.memory.buffer, ptr, 64);
+    let s = "";
+    for (let i = 0; i < bytes.length && bytes[i]; i++) s += String.fromCharCode(bytes[i]);
+    return s;
+  };
+  // The model writes in capitals (the board's font has no others); make it easier to read.
+  function readable(text) {
+    let s = text.charAt(0) + text.slice(1).toLowerCase();
+    s = s.replace(/([.!?] )([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\bi\b/g, "I");
+    for (const n of NAMES) s = s.replace(new RegExp("\\b" + n.toLowerCase() + "\\b", "g"), title(n));
+    for (const k of SPECIES) s = s.replace(new RegExp("\\b" + k.toLowerCase() + "\\b", "g"), k);
+    return s;
+  }
+  const setName = (i, name) => sim.web_set_name(i, name.charCodeAt(0), name.charCodeAt(1), name.charCodeAt(2));
+  function say(slot, text) { bubbles[slot] = { text, until: performance.now() + 4500 }; }
+  function collectTalk() {
+    while (sim.web_talk_take()) {
+      const sp = sim.web_talk_speaker(), li = sim.web_talk_listener(), text = readable(cString(sim.web_talk_text()));
+      logEvent("💬", title(look[sp].name) + " to " + title(look[li].name) + ": “" + text + "”", clock());
+      say(sp, text);
+    }
+  }
+  // Bubbles go above each animal's nametag: draw() notes where those are.
+  const spots = new Array(N).fill(null);
+  function drawBubbles() {
+    const now = performance.now();
+    let typing = -1, typed = "";
+    if (!board && talkOn && sim.web_talk_now()) { typing = sim.web_talk_now_speaker(); typed = readable(cString(sim.web_talk_now_text())) + "…"; }
+    ctx.font = "6px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "center";
+    for (let i = 0; i < N; i++) {
+      const b = bubbles[i] && bubbles[i].until > now ? bubbles[i].text : (i === typing ? typed : null);
+      if (!b || !spots[i] || b === "…") continue;
+      const w = Math.min(150, ctx.measureText(b).width + 8), h = 10;
+      const x = Math.min(TANK_W - w / 2 - 1, Math.max(w / 2 + 1, spots[i].x)), y = Math.max(1, spots[i].top - h - 4);
+      ctx.fillStyle = "rgba(255,255,255,0.93)";
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(x - w / 2, y, w, h, 3); else ctx.rect(x - w / 2, y, w, h);
+      ctx.fill();
+      ctx.beginPath(); ctx.moveTo(spots[i].x - 2.5, y + h); ctx.lineTo(spots[i].x + 2.5, y + h); ctx.lineTo(spots[i].x, y + h + 3); ctx.fill();
+      ctx.fillStyle = "rgb(20,24,36)";
+      ctx.fillText(b, x, y + 7, w - 6);
+    }
+  }
+
   function reset() {
     sim.web_init((Math.random() * 0xFFFFFFFF) >>> 0);
     look = [];
     nextName = 0;
     ticks = 0;
-    for (let i = 0; i < N; i++) look.push({ name: nameFor(nextName++) });
+    for (let i = 0; i < N; i++) { look.push({ name: nameFor(nextName++) }); setName(i, look[i].name); }
+    bubbles.fill(null);
     resetFamilies();
     lastHealth = new Array(N).fill(HEALTH_LIMIT);
     flash = new Array(N).fill(0);
@@ -1124,6 +1300,8 @@ async function startTank() {
       else if (type === EV_EVOLVED) logEvent("✨", A + " evolved into " + (SPECIES[b] === "Orca" ? "an " : "a ") + SPECIES[b], clock());
       else if (type === EV_BORN) { // the animal doing best had a baby with a partner, in the dead one's place
         look[a] = { name: nameFor(nextName++) };
+        setName(a, look[a].name);
+        bubbles[a] = null;
         lastHealth[a] = HEALTH_LIMIT;
         flash[a] = 0;
         logEvent("🐣", title(look[a].name) + " was born to " + B + " and " + title(look[c].name), clock());
@@ -1135,6 +1313,7 @@ async function startTank() {
       else if (flash[i]) flash[i]--;
       lastHealth[i] = health;
     }
+    collectTalk();
   }
 
   // Draw one sea animal on the standard grid (nose towards +x), the same shapes as
@@ -1258,7 +1437,9 @@ async function startTank() {
       // (sizes now go up to about 2.9 with a big build)
       ctx.fillStyle = rgb(looks[i].tint.map(v => (v + 255) / 2), 1);
       ctx.fillText(looks[i].name, Math.min(TANK_W - 10, Math.max(10, x)), above ? y - reach - 2 : y + reach + 8);
+      spots[i] = { x, top: above ? y - reach - 9 : y - reach };
     }
+    drawBubbles();
   }
 
   function updateRoster(s, looks) {
@@ -1427,8 +1608,8 @@ async function startTank() {
       track.children[0].style.width = pos(me.genes[k]) + "%";
       [mum, dad].forEach((p, n) => {
         const mark = track.children[1 + n];
-        mark.hidden = !p;
-        if (p) { mark.style.left = pos(p.genes[k]) + "%"; mark.title = (n ? "Dad, " : "Mum, ") + p.name; }
+        mark.hidden = !p || !p.genes; // (ancestors read from a board have no genes recorded)
+        if (p && p.genes) { mark.style.left = pos(p.genes[k]) + "%"; mark.title = (n ? "Dad, " : "Mum, ") + p.name; }
       });
       const third = pos(me.genes[k]) < 33 ? 0 : pos(me.genes[k]) < 67 ? 1 : 2;
       row.children[2].textContent = g.words[third];
@@ -1905,7 +2086,33 @@ async function startTank() {
       board = snapshot;
       setMode();
     },
-    boardLog(text) { logEvent("•", text, new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })); },
+    // The board's family history: add every ancestor the page hasn't seen (ones that died
+    // before it connected), so the family tree is complete.
+    boardHistory(people) {
+      const now = nowSeconds();
+      for (const p of people) {
+        if (!p.id) continue;
+        let r = registry.get(p.id);
+        if (!r) {
+          const same = [...registry.values()].filter(x => x.given === p.name).length;
+          r = { id: p.id, mum: p.mum, dad: p.dad, family: p.family, gen: p.gen, given: p.name, born: now, died: p.dead ? now : null, slot: -1,
+                name: p.name + (same ? (same < ROMAN.length ? ROMAN[same] : " " + (same + 1)) : ""), tint: p.tint, marking: p.marking, kind: p.kind,
+                kinds: new Set([p.kind]) };
+          registry.set(p.id, r);
+        } else if (p.dead && r.died === null) r.died = now;
+      }
+      treeShown = "";
+    },
+    boardLog(text) {
+      const when = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      const spoken = /^([A-Za-z?]{3}): (.+)$/.exec(text); // "Ada: hello there" is an animal talking
+      const slot = spoken && board ? board.look.findIndex(l => l.name.toUpperCase() === spoken[1].toUpperCase()) : -1;
+      if (slot >= 0) {
+        const line = readable(spoken[2].toUpperCase());
+        logEvent("💬", title(spoken[1].toUpperCase()) + ": “" + line + "”", when);
+        say(slot, line);
+      } else logEvent("•", text, when);
+    },
     stopBoard() {
       if (!board) return;
       board = null;
@@ -1928,11 +2135,13 @@ async function startTank() {
   // Run a minute of tank time at once (still writing down every animal, for the family tree).
   $("skip").addEventListener("click", () => {
     if (board) return;
+    sim.web_talk_quiet(1); // no talking while skipping (it would take a while)
     for (let t = 0; t < 30 * 60; t++) {
       step();
       if (t % 10 === 0) noteAnimals(simState(), looksFrom(simState(), look));
     }
     before = null;
+    sim.web_talk_quiet(0);
     updateRoster(simState(), looksFrom(simState(), look));
   });
   $("pause").addEventListener("click", () => { paused = !paused; $("pause").textContent = paused ? "Play" : "Pause"; });
