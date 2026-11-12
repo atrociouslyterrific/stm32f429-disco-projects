@@ -132,7 +132,7 @@ if (senseLabels.length !== sim.web_n_in()) problem("the page names " + senseLabe
 
 // 6. The board's "window" for the website must be the size the page will ask for.
 const status = JSON.parse(fs.readFileSync(path.join(site, "status.json"), "utf8"));
-const expected = 24 + VIEW * 4 + N * 8 + 4 + 8 * 40 + 4 + 4 + 200 * 16; // ...and the family history
+const expected = 24 + VIEW * 4 + N * 8 + 4 + 8 * 40 + 4 + 4 + 200 * 20; // ...and the family history (20 bytes each)
 if (!status.fish_mirror) problem("status.json does not say where the board's tank lives");
 else if (status.fish_mirror.size !== expected) problem("the board's tank block is " + status.fish_mirror.size + " bytes but the page expects " + expected);
 else console.log("board tank block: " + expected + " bytes, as the page expects");

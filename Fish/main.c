@@ -68,7 +68,7 @@ typedef struct {
   uint16_t id, mum, dad, gen;
   uint8_t family, kind, r, g, b, marking, dead, spare;
   char name[4];
-} Ancestor; // 16 bytes
+} Ancestor; // 20 bytes (the website reads them by this layout)
 struct Mirror {
   uint32_t magic;            // spells "FISH", so the website knows it found the right thing
   uint32_t version;

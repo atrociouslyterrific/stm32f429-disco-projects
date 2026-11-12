@@ -572,7 +572,8 @@ async function startMirror() {
   const VIEW_AT = 24, LOOKS_AT = VIEW_AT + VIEW * 4, LOG_COUNT_AT = LOOKS_AT + N * 8, LOG_AT = LOG_COUNT_AT + 4;
   const SIZE = LOG_AT + MIRROR_LOG_LINES * MIRROR_LOG_CHARS + 4; // the part read ten times a second
   const HISTORY = 200, HISTORY_AT = SIZE; // then the family history (read every few seconds)
-  if (info.size !== SIZE + 4 + HISTORY * 16) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
+  const ENTRY = 20; // bytes per animal in the history (Ancestor in Fish/main.c)
+  if (info.size !== SIZE + 4 + HISTORY * ENTRY) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
 
   let link;
   try {
@@ -663,11 +664,11 @@ async function startMirror() {
       if (!mine.historyAt || performance.now() - mine.historyAt > 3000) {
         mine.historyAt = performance.now();
         try {
-          const h = await link.read_memory(info.address + HISTORY_AT, 4 + HISTORY * 16);
+          const h = await link.read_memory(info.address + HISTORY_AT, 4 + HISTORY * ENTRY);
           const hv = new DataView(h.buffer, h.byteOffset, h.byteLength), count = Math.min(HISTORY, hv.getUint32(0, true));
           const people = [];
           for (let k = 0; k < count; k++) {
-            const at = 4 + k * 16;
+            const at = 4 + k * ENTRY;
             people.push({ id: hv.getUint16(at, true), mum: hv.getUint16(at + 2, true), dad: hv.getUint16(at + 4, true),
               gen: hv.getUint16(at + 6, true), family: h[at + 8], kind: h[at + 9], tint: [h[at + 10], h[at + 11], h[at + 12]],
               marking: h[at + 13], dead: !!h[at + 14], name: String.fromCharCode(h[at + 16], h[at + 17], h[at + 18]).replace(/[^A-Z]/g, "?") });
