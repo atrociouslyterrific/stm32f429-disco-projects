@@ -268,6 +268,8 @@
       <span class="counter">Eaten <b id="c-eaten">0</b></span>
       <span class="counter">Starved <b id="c-starved">0</b></span>
       <span class="counter" title="How rich the water is in nutrients. Dead fish add to it; plants use it to grow.">Water richness <b id="c-rich">0%</b></span>
+      <span class="counter" title="A day lasts three minutes. At night the animals can't see as far, and plants stop growing.">Time <b id="c-time">Day</b></span>
+      <span class="counter" title="The water's drift, slowly turning. It carries the animals and the food.">Current <b id="c-current">→</b></span>
     </div>
     <div class="roster" id="roster"></div>
     <div class="key">
@@ -278,6 +280,8 @@
     <details>
       <summary>How the ecosystem works</summary>
       <ul class="how">
+        <li><strong>Environment:</strong> rocks to swim around; a day lasts three minutes, and at night the animals can't see as far and plants stop growing; a gentle current slowly turns, carrying animals and food; food sinks to the sand.</li>
+        <li><strong>Talking matters:</strong> kind words make the listener like the speaker more, hostile ones less, and food talk ("follow me", "try the plants") tells the listener where food is.</li>
         <li><strong>Plants</strong> grow on the seafloor, faster when the water is rich. Grown plants release food. The two smallest species also nibble the plants.</li>
         <li><strong>Evolving:</strong> everyone starts as a tiny Fry. Eating earns meal points; enough of them and an animal evolves: Fry → Squid → Turtle, then Shark → Orca if it has been a hunter, or Ray → Whale if it has been gentle. Each step is bigger and stronger.</li>
         <li><strong>Hunting:</strong> a hungry animal hunts clearly weaker ones. <strong>Fighting:</strong> enemies attack each other whatever their size, and both get hurt. Every bite is also a meal for the biter.</li>
@@ -573,7 +577,8 @@ async function startMirror() {
   const SIZE = LOG_AT + MIRROR_LOG_LINES * MIRROR_LOG_CHARS + 4; // the part read ten times a second
   const HISTORY = 200, HISTORY_AT = SIZE; // then the family history (read every few seconds)
   const ENTRY = 20; // bytes per animal in the history (Ancestor in Fish/main.c)
-  if (info.size !== SIZE + 4 + HISTORY * ENTRY) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
+  const MOTION_AT = SIZE + 4 + HISTORY * ENTRY, MOTION_SIZE = 4 + N * 16 + 4; // where everyone is (read most often)
+  if (info.size !== MOTION_AT + MOTION_SIZE) { mirrorSay("This page and the published Fish program disagree. Reload the page.", true); return; }
 
   let link;
   try {
@@ -613,7 +618,30 @@ async function startMirror() {
     } catch (e) { console.error(e); }
   };
 
+  // The whole picture (about 2 KB) is read a few times a second; in between, just where
+  // everyone is (under 200 bytes), as often as the USB link allows. Reading less each time
+  // is what keeps the motion smooth: the board's programmer chip is slow with big reads.
+  let latest = null, fullAt = 0;
   while (mine.running) {
+    if (latest && performance.now() - fullAt < 350) {
+      try {
+        const m = await link.read_memory(info.address + MOTION_AT, MOTION_SIZE);
+        const mv = new DataView(m.buffer, m.byteOffset, m.byteLength), mseq = mv.getUint32(0, true);
+        if (!(mseq & 1) && mseq === mv.getUint32(MOTION_SIZE - 4, true)) {
+          const s = latest.s.slice();
+          for (let i = 0; i < N; i++)
+            for (let k = 0; k < 4; k++) s[tank.layout.FISH_AT + i * tank.layout.PER + k] = mv.getFloat32(4 + (i * 4 + k) * 4, true);
+          tank.showBoard({ s, look: latest.look, flash: latest.flash });
+        }
+      } catch (err) {
+        console.error(err);
+        if (mine.running) await stopMirror("Lost the connection to the board. Check the cable and try again. (" + String(err && err.message ? err.message : err) + ")");
+        return;
+      }
+      await new Promise(r => setTimeout(r, 8));
+      continue;
+    }
+    fullAt = performance.now();
     let bytes;
     try {
       bytes = await link.read_memory(info.address, SIZE);
@@ -634,7 +662,7 @@ async function startMirror() {
       await new Promise(r => setTimeout(r, 150));
       continue;
     }
-    if (data.getUint32(4, true) !== 6) { // the version number Fish/main.c puts in fish_mirror
+    if (data.getUint32(4, true) !== 7) { // the version number Fish/main.c puts in fish_mirror
       await stopMirror("The board is running a different version of Fish than this page (build __BUILD__). Click Flash beside Fish, then try again.");
       return;
     }
@@ -658,10 +686,11 @@ async function startMirror() {
         });
         flash.push(bytes[at + 7]);
       }
+      latest = { s, look, flash };
       tank.showBoard({ s, look, flash });
 
       // Every few seconds, the board's family history too (for the family tree).
-      if (!mine.historyAt || performance.now() - mine.historyAt > 3000) {
+      if (!mine.historyAt || performance.now() - mine.historyAt > 5000) {
         mine.historyAt = performance.now();
         try {
           const h = await link.read_memory(info.address + HISTORY_AT, 4 + HISTORY * ENTRY);
@@ -690,7 +719,7 @@ async function startMirror() {
       }
       seenLog = logCount;
     }
-    await new Promise(r => setTimeout(r, 70));
+    await new Promise(r => setTimeout(r, 8));
   }
 }
 
@@ -1170,6 +1199,19 @@ async function startTank() {
       c.beginPath(); c.arc(rx, ry, r, 0, Math.PI * 2); c.fill();
       c.restore();
     }
+    // The rocks the animals swim around (the same ones as in the rules and on the board)
+    const obs = new Float32Array(sim.memory.buffer, sim.web_obstacles(), sim.web_n_obstacles() * 3);
+    for (let k = 0; k < sim.web_n_obstacles(); k++) {
+      const [ox, oy, r] = [obs[k * 3], obs[k * 3 + 1], obs[k * 3 + 2]];
+      c.save();
+      c.beginPath(); c.arc(ox, oy, r, 0, Math.PI * 2); c.clip();
+      c.fillStyle = "rgb(96,103,118)"; c.fillRect(ox - r, oy - r, 2 * r, 2 * r);
+      c.fillStyle = "rgb(140,148,162)";
+      c.beginPath(); c.moveTo(ox - r, oy - r); c.lineTo(ox + 0.45 * r * 1.4, oy - r); c.lineTo(ox - r, oy + 0.45 * r * 1.4); c.fill();
+      c.fillStyle = "rgb(62,118,72)";
+      for (let n = 0; n < r * 1.6; n++) c.fillRect(ox - r + ((n * 37) % (2 * r)), oy - r + ((n * 11) % (0.45 * r)), 1.5, 1.5);
+      c.restore();
+    }
   }
 
   function buildRoster() {
@@ -1247,6 +1289,10 @@ async function startTank() {
       const sp = sim.web_talk_speaker(), li = sim.web_talk_listener(), text = readable(cString(sim.web_talk_text()));
       logEvent("💬", title(look[sp].name) + " to " + title(look[li].name) + ": “" + text + "”", clock());
       say(sp, text);
+      const effect = sim.web_talk_effect(), A = title(look[li].name), B = title(look[sp].name);
+      if (effect === 1) logEvent("💞", A + " warms to " + B, clock());
+      else if (effect === 2) logEvent("🧊", A + " cools on " + B, clock());
+      else if (effect === 3) logEvent("🧭", B + " told " + A + " where food is", clock());
     }
   }
   // Bubbles go above each animal's nametag: draw() notes where those are.
@@ -1405,6 +1451,8 @@ async function startTank() {
       });
     }
 
+    const light = s[6] || 1; // night: a dark blue veil over the water
+    if (light < 0.99) { ctx.fillStyle = `rgba(0,6,30,${((1 - light) * 0.62).toFixed(3)})`; ctx.fillRect(0, 0, TANK_W, TANK_H); }
     ctx.fillStyle = "rgb(255,230,120)";
     for (let f = 0; f < N_FOOD; f++) {
       if (s[FOOD_AT + f * 3 + 2]) ctx.fillRect(s[FOOD_AT + f * 3] - 1.5, s[FOOD_AT + f * 3 + 1] - 1.5, 3, 3);
@@ -1450,6 +1498,9 @@ async function startTank() {
     $("c-starved").textContent = Math.round(s[3]);
     $("c-born").textContent = Math.round(s[4]);
     $("c-rich").textContent = Math.round(s[5] * 100) + "%";
+    const light = s[6] || 1, rising = board ? true : ((ticks + 2700) % 5400) < 2700;
+    $("c-time").textContent = light > 0.85 ? "Day ☀️" : light < 0.4 ? "Night 🌙" : rising ? "Dawn" : "Dusk";
+    $("c-current").textContent = (s[7] || 0) >= 0 ? "→" : "←";
     for (let i = 0; i < N; i++) {
       const o = FISH_AT + i * PER, c = cards[i], health = s[o + 7], hunger = 1 - s[o + 6], kills = Math.round(s[o + 10]);
       const kind = Math.min(SPECIES.length - 1, Math.max(0, Math.round(s[o + 15]))), level = Math.round(s[o + 12]) + 1;
@@ -2077,13 +2128,13 @@ async function startTank() {
 
   // Hooks for the USB code above.
   window.fishTank = {
-    layout: { N, VIEW },
+    layout: { N, VIEW, FISH_AT, PER },
     feedBoard: null, // set while a board is showing: (x, y) => drops food on the board
     showBoard(snapshot) { // { s, look, flash }
       const now = performance.now();
       if (!board) { clearLog("Waiting for something to happen on the board…"); resetFamilies(); boardStart = now; }
       snapshot.prev = board ? board.s : null;
-      snapshot.gap = board ? Math.min(400, Math.max(30, now - board.at)) : 100; // how long between reports
+      snapshot.gap = board ? Math.min(400, Math.max(15, now - board.at)) : 100; // how long between reports
       snapshot.at = now;
       board = snapshot;
       setMode();

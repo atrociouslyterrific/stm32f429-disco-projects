@@ -21,6 +21,14 @@
 #define FLOOR_H 14.0f   // the seafloor is this thick, at the bottom of the tank
 #define PLANT_TALL 60.0f // a fully grown plant stands this high
 
+// Rocks the animals must swim around: centre x, centre y, radius (the same on the board,
+// the website and in training).
+#define N_OBSTACLES 3
+extern const float OBSTACLES[N_OBSTACLES][3];
+
+// One day in the tank lasts 3 minutes (5400 ticks). See Tank.light.
+#define DAY_TICKS 5400
+
 #define N_FISH 10
 #define N_FOOD 8
 #define N_PLANTS 6
@@ -101,6 +109,9 @@ typedef struct {
   uint8_t bite_wait;   // ticks until it can bite again
   uint8_t dead;        // set when its health runs out; whoever runs the tank replaces it
   uint8_t eaten_by;    // which fish finished it off, or NOBODY if it starved
+  // A tip it was given ("follow me!", "try the plants"): where food is, remembered for a while.
+  float tip_x, tip_y;
+  uint16_t tip_ticks;
   Brain brain;
 } Fish;
 
@@ -135,6 +146,10 @@ typedef struct {
   Food food[N_FOOD];
   Plant plants[N_PLANTS];
   float nutrients; // how rich the water is, 0..1. Dead fish add to it; plants use it up.
+  // The environment:
+  float light;            // 1 = midday, 0.25 = darkest night. Animals see less far at night,
+                          // and plants only grow in the light.
+  float current_x, current_y; // the water's drift, slowly turning; carries animals and food
   // Relationships: like[a][b] is how fish a feels about fish b,
   // from -1 (enemy) through 0 (stranger) to +1 (friend). It needn't be mutual.
   float like[N_FISH][N_FISH];
@@ -184,5 +199,11 @@ void tank_rebirth(Tank *tank, int i);
 // Returns the first parent (the mum).
 int tank_replace(Tank *tank, int gone);
 void tank_step(Tank *tank); // move time forward one tick
+
+// Animal `listener` heard `speaker` say `text`. Words matter: kind ones make the listener
+// like the speaker more, hostile ones less, and talk of food tells the listener where food
+// is. Returns what it did (HEARD_...), for showing.
+enum { HEARD_NOTHING, HEARD_KIND, HEARD_HOSTILE, HEARD_FOOD_TIP };
+int tank_hear(Tank *tank, int speaker, int listener, const char *text);
 
 #endif

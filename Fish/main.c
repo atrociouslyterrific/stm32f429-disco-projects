@@ -84,6 +84,11 @@ struct Mirror {
   // the website can draw this tank's whole family tree (not just who is alive now).
   uint32_t history_count;
   Ancestor history[HISTORY];
+  // Where everyone is right now, on its own: small enough for the website to read many
+  // times a second, so the tank it shows moves smoothly. Updated every frame drawn.
+  uint32_t motion_seq;
+  float motion[N_FISH][4];   // x, y, dx, dy, exactly as drawn on the screen
+  uint32_t motion_seq_end;
 };
 struct Mirror fish_mirror;
 
@@ -207,9 +212,59 @@ static uint16_t floor_color(int px, int py) {
   return (px * 13 + py * 7) % 11 == 0 ? RGB(160, 136, 84) : RGB(196, 172, 112); // speckled sand
 }
 
-// What is behind the fish at this dot: seafloor, a plant, or water.
+// ---------- speech bubbles ----------
+// A bubble appears over an animal while it talks: "..." while the model reads what's going
+// on, then the words as they are written, then it stays a few seconds. Bubbles sit on top
+// of everything in the tank; they stay where they appeared (animals swim underneath).
+#define BUB_COLS 17                    // characters per line (two lines: 34, a whole line of talk)
+#define BUB_W (BUB_COLS * 6 + 5)       // 107 dots wide
+#define BUB_H 21                       // 2 lines of 8 dots, plus edges
+#define BUBBLES 3
+#define BUB_FILL RGB(245, 245, 238)
+#define BUB_INK  RGB(20, 24, 36)
+#define BUB_EDGE RGB(120, 130, 150)
+typedef struct {
+  int on;
+  Rect r;
+  int speaker;
+  uint16_t id;
+  uint32_t until;            // tick it disappears (0 = still being written)
+  char text[TALK_LINE + 1];
+  const char *cell[2][BUB_COLS]; // each character's picture from the font, or 0 for a space
+} Bubble;
+static Bubble bub[BUBBLES];
+static int bubbles_on;
+
+// The colour of a bubble at screen dot (px, py), or -1 if no bubble is there.
+static inline int bubble_color(int px, int py) {
+  for (int k = 0; k < BUBBLES; k++) {
+    const Bubble *b = &bub[k];
+    if (!b->on || px < b->r.x0 || px > b->r.x1 || py < b->r.y0 || py > b->r.y1) continue;
+    int lx = px - b->r.x0, ly = py - b->r.y0;
+    int edge_x = lx == 0 || lx == BUB_W - 1, edge_y = ly == 0 || ly == BUB_H - 1;
+    if (edge_x && edge_y) continue; // rounded corners: see through
+    if (edge_x || edge_y) return BUB_EDGE;
+    int tx = lx - 3, ty = ly - 3;
+    if (tx < 0 || ty < 0 || tx >= BUB_COLS * 6 || ty >= 16) return BUB_FILL;
+    const char *glyph = b->cell[ty / 8][tx / 6];
+    int gx = tx % 6, gy = ty % 8;
+    return glyph && gx < FONT_COLS && gy < FONT_ROWS && glyph[gy * FONT_COLS + gx] == 'X' ? BUB_INK : BUB_FILL;
+  }
+  return -1;
+}
+
+// What is behind the fish at this dot: a speech bubble, seafloor, a plant, or water.
 static inline uint16_t background(int px, int py) {
+  if (bubbles_on) { int c = bubble_color(px, py); if (c >= 0) return (uint16_t)c; }
   if (py >= floor_top[px]) return floor_color(px, py);
+  for (int k = 0; k < N_OBSTACLES; k++) { // the rocks the animals swim around
+    float ox = (float)px + 0.5f - OBSTACLES[k][0], oy = (float)py + 0.5f - OBSTACLES[k][1], r = OBSTACLES[k][2];
+    if (ox * ox + oy * oy > r * r) continue;
+    unsigned speck = (unsigned)(px * 37 + py * 11) % 13u;
+    if (oy < -0.55f * r && speck < 5) return RGB(62, 118, 72);           // moss on top
+    if (ox + oy < -0.45f * r) return speck == 0 ? RGB(110, 118, 132) : RGB(140, 148, 162); // lit side
+    return speck < 2 ? RGB(64, 70, 84) : RGB(96, 103, 118);
+  }
   if (py >= plant_col[px]) return (((py >> 2) + px) & 1) ? RGB(40, 150, 70) : RGB(28, 112, 58);
   return water[py];
 }
@@ -224,11 +279,18 @@ static void paint_background(Rect r) {
   lcd_done();
 }
 
-static void scenery_init(void) {
-  for (int y = 0; y < TANK_ROWS; y++) { // water: lighter blue at the top, darker lower down
+// The water's colours for how light it is (1 = midday): lighter blue at the top, darker
+// lower down, and darker all over at night.
+static void set_water(float light) {
+  float k = 0.3f + 0.7f * light;
+  for (int y = 0; y < TANK_ROWS; y++) {
     int r = 8 - 6 * y / TANK_ROWS, g = 60 - 44 * y / TANK_ROWS, b = 110 - 62 * y / TANK_ROWS;
-    water[y] = RGB(r, g, b);
+    water[y] = RGB((int)((float)r * k), (int)((float)g * k), (int)((float)b * (0.25f + 0.75f * k)));
   }
+}
+
+static void scenery_init(void) {
+  set_water(1.0f);
   for (int x = 0; x < LCD_W; x++) {
     int top = 212 - zigzag(x, 37) / 6 - zigzag(x + 5, 13) / 4; // gently uneven sand
     for (int k = 0; k < N_ROCKS; k++) {                       // rocks poke up out of it
@@ -452,6 +514,9 @@ static void draw_fish(int i) {
   for (int j = 0; j < N_FISH && n_near < 5; j++)
     if (j != i && overlap(area, art[j].now)) near[n_near++] = j;
 
+  int under_bubble = 0; // only check bubbles where there might be one
+  for (int k = 0; k < BUBBLES; k++) if (bub[k].on && overlap(area, bub[k].r)) under_bubble = 1;
+
   const float su = art[i].stretch_u, sv = art[i].stretch_v;
   const float u_step = fdx * su, v_step = -fdy * sv; // one dot to the right on screen
   lcd_area(area.x0, area.y0, area.x1 - area.x0 + 1, area.y1 - area.y0 + 1);
@@ -461,7 +526,8 @@ static void draw_fish(int i) {
     float u = (rx * fdx + ry * fdy) * su; // towards the nose
     float v = (ry * fdx - rx * fdy) * sv; // towards its right
     for (int px = area.x0; px <= area.x1; px++) {
-      int color = body_color(i, u, v);
+      int color = under_bubble ? bubble_color(px, py) : -1;
+      if (color < 0) color = body_color(i, u, v);
       if (color < 0) color = tag_color(i, px, py);
       for (int k = 0; color < 0 && k < n_near; k++) {
         int j = near[k];
@@ -487,13 +553,86 @@ static void draw_food(void) {
       paint_background(r);
       crumb[k].shown = 0;
     }
-    if (food->there) {
+    if (food->there && bubble_color(x, y) < 0) {
       lcd_fill_rect(x - 1, y - 1, 3, 3, RGB(255, 230, 120));
       crumb[k].x = x;
       crumb[k].y = y;
       crumb[k].shown = 1;
     }
   }
+}
+
+// Fill in a bubble's text: split into two lines at a space, and look up each character.
+static void bubble_text(Bubble *b, const char *text) {
+  int n = 0;
+  while (text[n] && n < TALK_LINE) { b->text[n] = text[n]; n++; }
+  b->text[n] = 0;
+  int split = n;
+  if (n > BUB_COLS) { // break at the last space that fits on the first line
+    split = BUB_COLS;
+    for (int k = BUB_COLS; k > 0; k--) if (text[k] == ' ') { split = k; break; }
+  }
+  for (int row = 0; row < 2; row++)
+    for (int col = 0; col < BUB_COLS; col++) b->cell[row][col] = 0;
+  for (int k = 0, col = 0; k < split && col < BUB_COLS; k++, col++) b->cell[0][col] = font_glyph(text[k]);
+  int start = split < n && text[split] == ' ' ? split + 1 : split;
+  for (int k = start, col = 0; k < n && col < BUB_COLS; k++, col++) b->cell[1][col] = font_glyph(text[k]);
+}
+
+static void bubble_redraw(const Bubble *b) { paint_background(b->r); }
+
+// The bubble belonging to animal `who` (as it is now), or a free one, or the oldest.
+static Bubble *bubble_for(int who) {
+  Bubble *free_one = 0, *oldest = &bub[0];
+  for (int k = 0; k < BUBBLES; k++) {
+    Bubble *b = &bub[k];
+    if (b->on && b->speaker == who && b->id == tank.fish[who].id) return b;
+    if (!b->on && !free_one) free_one = b;
+    if (b->on && b->until && (!oldest->on || !oldest->until || b->until < oldest->until)) oldest = b;
+  }
+  if (free_one) return free_one;
+  oldest->on = 0;
+  paint_background(oldest->r);
+  return oldest;
+}
+
+// Show `text` over animal `who`; until = 0 while it is still being written.
+static void bubble_say(int who, const char *text, uint32_t until) {
+  Bubble *b = bubble_for(who);
+  if (!b->on) { // place it above the animal and its nametag (or below, near the top)
+    int x0 = clamp_int((int)art[who].x - BUB_W / 2, 0, LCD_W - BUB_W);
+    int y0 = art[who].now.y0 - BUB_H - 2;
+    if (y0 < 0) y0 = art[who].now.y1 + 2;
+    y0 = clamp_int(y0, 0, TANK_ROWS - BUB_H);
+    Rect r = {x0, y0, x0 + BUB_W - 1, y0 + BUB_H - 1};
+    b->r = r;
+    b->speaker = who;
+    b->id = tank.fish[who].id;
+    b->on = 1;
+    b->text[0] = 1; // (forces the first draw)
+  }
+  b->until = until;
+  int same = 1;
+  for (int k = 0; same && (text[k] || b->text[k]); k++) same = text[k] == b->text[k];
+  bubbles_on = 1;
+  if (!same) { bubble_text(b, text); bubble_redraw(b); }
+}
+
+// Each tick: show what's being written right now, and take down bubbles whose time is up.
+static void bubbles_tick(uint32_t ticks) {
+  int speaker, listener;
+  char so_far[TALK_LINE + 1];
+  int speaking = talk_current(&speaker, &listener, so_far) ? speaker : -1;
+  if (speaking >= 0) bubble_say(speaker, so_far[0] ? so_far : "...", 0);
+  int any = 0;
+  for (int k = 0; k < BUBBLES; k++) {
+    Bubble *b = &bub[k];
+    // A bubble still "being written" by someone who has stopped (or died): let it go soon.
+    if (b->on && !b->until && (b->speaker != speaking || b->id != tank.fish[b->speaker].id)) b->until = ticks + 90;
+    if (b->on && b->until && ticks >= b->until) { b->on = 0; paint_background(b->r); }
+    any |= b->on;
+  }
+  bubbles_on = any;
 }
 
 // ---------- the panel under the tank ----------
@@ -713,7 +852,24 @@ static void one_tick(int has_touch, uint32_t ticks, int *button_was, int *touch_
   talk_notice(&tank);
   talk_work(&tank, 1);
   TalkLine line;
-  while (talk_take(&line)) log_add(look[line.speaker].name, ": ", line.text);
+  while (talk_take(&line)) {
+    log_add(look[line.speaker].name, ": ", line.text);
+    tank_hear(&tank, line.speaker, line.listener, line.text); // words matter
+    bubble_say(line.speaker, line.text, ticks + 120); // stays four seconds
+  }
+  bubbles_tick(ticks);
+
+  // Day and night: when the light has changed enough, repaint the water (the animals are
+  // drawn again straight after).
+  static int light_level = 8;
+  int level = (int)(tank.light * 8.0f + 0.5f);
+  if (level != light_level) {
+    light_level = level;
+    set_water((float)level / 8.0f);
+    Rect whole = {0, 0, LCD_W - 1, TANK_ROWS - 1};
+    paint_background(whole);
+    for (int k = 0; k < N_FOOD; k++) crumb[k].shown = 0;
+  }
 }
 
 int main(void) {
@@ -725,7 +881,7 @@ int main(void) {
   RCC_AHB1ENR |= 1u << 0; // port A, for the button
 
   fish_mirror.magic = 0x48534946u; // "FISH"
-  fish_mirror.version = 6;
+  fish_mirror.version = 7;
 
   tank_init(&tank, 0x1234ABCDu);
   talk_init(0x7A1C0FFEu);
@@ -794,6 +950,13 @@ int main(void) {
     // Draw every fish part-way between the last tick and this one.
     float blend = (float)owed / (float)tick_len;
     for (int i = 0; i < N_FISH; i++) prepare(i, blend);
+    fish_mirror.motion_seq++;
+    for (int i = 0; i < N_FISH; i++) {
+      fish_mirror.motion[i][0] = art[i].x; fish_mirror.motion[i][1] = art[i].y;
+      fish_mirror.motion[i][2] = art[i].dx; fish_mirror.motion[i][3] = art[i].dy;
+    }
+    fish_mirror.motion_seq++;
+    fish_mirror.motion_seq_end = fish_mirror.motion_seq;
     for (int i = 0; i < N_FISH; i++) draw_fish(i);
     draw_food();
     frames++;

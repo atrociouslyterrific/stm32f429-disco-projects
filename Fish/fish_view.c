@@ -8,8 +8,8 @@ void fish_view(const Tank *tank, unsigned born, float out[VIEW_SIZE]) {
   *p++ = (float)tank->total_starved;
   *p++ = (float)born;
   *p++ = tank->nutrients;
-  *p++ = 0.0f;
-  *p++ = 0.0f;
+  *p++ = tank->light;
+  *p++ = tank->current_x;
   for (int i = 0; i < N_FISH; i++) {
     const Fish *f = &tank->fish[i];
     *p++ = f->x; *p++ = f->y; *p++ = f->dx; *p++ = f->dy;

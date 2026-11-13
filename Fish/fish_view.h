@@ -8,7 +8,7 @@
 
 #include "fish_sim.h"
 
-#define VIEW_HEADER   8  // step, food eaten, fish eaten, fish starved, born, nutrients, (2 spare)
+#define VIEW_HEADER   8  // step, food eaten, fish eaten, fish starved, born, nutrients, light, current (sideways)
 // Per animal:
 //   0 x, 1 y, 2 dx, 3 dy, 4 size, 5 slim, 6 energy, 7 health, 8 score, 9 age, 10 kills,
 //   11 eaten, 12 step of evolution, 13 meal points, 14 most health it can have, 15 kind of animal,

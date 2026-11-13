@@ -109,10 +109,23 @@ static int now_speaker, now_listener;
 EXPORT int web_talk_available(void) { return talk_available(); }
 EXPORT void web_set_name(int i, int a, int b, int c) { char n[3] = {(char)a, (char)b, (char)c}; talk_set_name(i, n); }
 EXPORT void web_talk_quiet(int on) { talk_quiet(on); }
-EXPORT int web_talk_take(void) { return talk_take(&taken); }
+static int heard;
+// A finished line; the listener hears it (words matter: see tank_hear in fish_sim.h).
+EXPORT int web_talk_take(void) {
+  if (!talk_take(&taken)) return 0;
+  heard = tank_hear(&tank, taken.speaker, taken.listener, taken.text);
+  return 1;
+}
+EXPORT int web_talk_effect(void) { return heard; } // what hearing it did (HEARD_...)
 EXPORT int web_talk_speaker(void) { return taken.speaker; }
 EXPORT int web_talk_listener(void) { return taken.listener; }
 EXPORT char *web_talk_text(void) { return taken.text; }
 EXPORT int web_talk_now(void) { return talk_current(&now_speaker, &now_listener, so_far); }
 EXPORT int web_talk_now_speaker(void) { return now_speaker; }
 EXPORT char *web_talk_now_text(void) { return so_far; }
+
+// The rocks (centre x, centre y, radius each), and the environment.
+EXPORT const float *web_obstacles(void) { return &OBSTACLES[0][0]; }
+EXPORT int web_n_obstacles(void) { return N_OBSTACLES; }
+EXPORT float web_light(void) { return tank.light; }
+EXPORT float web_current_x(void) { return tank.current_x; }

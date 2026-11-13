@@ -151,6 +151,12 @@ void brain_child(Brain *child, const Brain *parent, uint32_t *rng, float amount)
 
 // ---------- setting up ----------
 
+const float OBSTACLES[N_OBSTACLES][3] = {
+  {62.0f, 180.0f, 24.0f},  // a big boulder on the seafloor, left
+  {176.0f, 118.0f, 14.0f}, // a rock outcrop in open water, right
+  {112.0f, 56.0f, 10.0f},  // a small one near the top
+};
+
 const uint8_t FOUNDER_COLOURS[N_FISH][3] = {
   {255, 140, 0},  {255, 90, 90},   {255, 210, 60},  {120, 230, 120}, {90, 200, 255},
   {200, 140, 255}, {255, 150, 200}, {240, 240, 240}, {160, 255, 220}, {180, 220, 90},
@@ -219,6 +225,7 @@ void tank_rebirth(Tank *t, int i) {
   f->bite_wait = 0;
   f->dead = 0;
   f->eaten_by = NOBODY;
+  f->tip_ticks = 0;
   for (int j = 0; j < N_FISH; j++) { t->like[i][j] = 0.0f; t->like[j][i] = 0.0f; t->said[i][j] = 0; t->said[j][i] = 0; }
 }
 
@@ -335,7 +342,25 @@ int tank_replace(Tank *t, int gone) {
   return mum_i;
 }
 
+// If (x, y) is inside a rock, move it out to the rock's edge. Returns 1 if it moved.
+static int push_out_of_rocks(float *x, float *y, float margin) {
+  int moved = 0;
+  for (int k = 0; k < N_OBSTACLES; k++) {
+    float ox = *x - OBSTACLES[k][0], oy = *y - OBSTACLES[k][1], r = OBSTACLES[k][2] + margin;
+    float d2 = ox * ox + oy * oy;
+    if (d2 < r * r) {
+      float d = root(d2);
+      if (d < 0.01f) { ox = 0.0f; oy = -1.0f; d = 1.0f; } // dead centre: out the top
+      *x = OBSTACLES[k][0] + ox / d * r;
+      *y = OBSTACLES[k][1] + oy / d * r;
+      moved = 1;
+    }
+  }
+  return moved;
+}
+
 int tank_add_food(Tank *t, float x, float y) {
+  push_out_of_rocks(&x, &y, 3.0f);
   for (int k = 0; k < N_FOOD; k++) {
     if (!t->food[k].there) {
       t->food[k].x = clamp(x, 4.0f, TANK_W - 4.0f);
@@ -359,6 +384,9 @@ void tank_init(Tank *t, uint32_t seed) {
   t->total_eaten = t->total_killed = t->total_starved = 0;
   t->n_events = 0;
   t->nutrients = 0.3f;
+  t->light = 1.0f;
+  t->current_x = 0.12f;
+  t->current_y = 0.0f;
   t->next_id = N_FISH + 1;
   for (int i = 0; i < N_FISH; i++) {
     Fish *f = &t->fish[i];
@@ -428,9 +456,11 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   const float ax = me->dx, ay = me->dy; // "ahead"
   const float rx = -ay, ry = ax;        // "to my right"
   for (int k = 0; k < N_IN; k++) in[k] = 0.0f;
+  const float dim = 0.6f + 0.4f * t->light; // it's harder to see far at night
+  const float sight = SIGHT * dim, food_sight = FOOD_SIGHT * dim;
 
   // Nearest food in sight: a pellet, or (for the two smallest species) a plant to nibble.
-  float best = FOOD_SIGHT * FOOD_SIGHT, fx = 0.0f, fy = 0.0f;
+  float best = food_sight * food_sight, fx = 0.0f, fy = 0.0f;
   int found = 0;
   for (int k = 0; k < N_FOOD; k++) {
     if (!t->food[k].there) continue;
@@ -446,9 +476,14 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
       if (d2 < best) { best = d2; fx = ox; fy = oy; found = 1; }
     }
   }
+  if (me->tip_ticks) { // food it was told about counts, however far away
+    float ox = me->tip_x - me->x, oy = me->tip_y - me->y;
+    float d2 = (ox * ox + oy * oy) * 0.5f;
+    if (d2 < best || !found) { best = d2; fx = ox; fy = oy; found = 1; }
+  }
   if (found) {
     float d = root(fx * fx + fy * fy) + 0.001f;
-    float strength = (1.0f - 0.5f * d / FOOD_SIGHT) / d; // nearer food pulls harder
+    float strength = (1.0f - 0.5f * d / food_sight) / d; // nearer food pulls harder
     in[S_FOOD_AHEAD] = (fx * ax + fy * ay) * strength;
     in[S_FOOD_RIGHT] = (fx * rx + fy * ry) * strength;
   }
@@ -458,8 +493,8 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   float cx = 0.0f, cy = 0.0f, hx = 0.0f, hy = 0.0f;
   float nearest = TOO_CLOSE * TOO_CLOSE, nx = 0.0f, ny = 0.0f;
   float friend_x = 0.0f, friend_y = 0.0f, enemy_x = 0.0f, enemy_y = 0.0f, kin_x = 0.0f, kin_y = 0.0f;
-  float prey_d2 = SIGHT * SIGHT, prey_x = 0.0f, prey_y = 0.0f;
-  float threat_d2 = SIGHT * SIGHT, threat_x = 0.0f, threat_y = 0.0f;
+  float prey_d2 = sight * sight, prey_x = 0.0f, prey_y = 0.0f;
+  float threat_d2 = sight * sight, threat_x = 0.0f, threat_y = 0.0f;
   int count = 0, pressed = 0, prey = 0, threat = 0;
   for (int j = 0; j < N_FISH; j++) {
     if (j == i || t->fish[j].dead) continue;
@@ -467,7 +502,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
     float ox = o->x - me->x, oy = o->y - me->y;
     float d2 = ox * ox + oy * oy;
     if (d2 < nearest) { nearest = d2; nx = ox; ny = oy; pressed = 1; }
-    if (d2 >= SIGHT * SIGHT) continue;
+    if (d2 >= sight * sight) continue;
 
     cx += ox; cy += oy; hx += o->dx; hy += o->dy; count++;
 
@@ -483,7 +518,7 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   *with_group = 0.0f;
   if (count) {
     float inv = 1.0f / (float)count;
-    cx *= inv / SIGHT; cy *= inv / SIGHT;
+    cx *= inv / sight; cy *= inv / sight;
     hx *= inv; hy *= inv;
     in[S_SCHOOL_AHEAD] = cx * ax + cy * ay;
     in[S_SCHOOL_RIGHT] = cx * rx + cy * ry;
@@ -506,13 +541,13 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   *sees_prey = prey;
   if (prey) {
     float d = root(prey_d2) + 0.001f;
-    float strength = (1.0f - 0.7f * d / SIGHT) / d;
+    float strength = (1.0f - 0.7f * d / sight) / d;
     in[S_PREY_AHEAD] = (prey_x * ax + prey_y * ay) * strength;
     in[S_PREY_RIGHT] = (prey_x * rx + prey_y * ry) * strength;
   }
   if (threat) {
     float d = root(threat_d2) + 0.001f;
-    float strength = (1.0f - 0.7f * d / SIGHT) / d;
+    float strength = (1.0f - 0.7f * d / sight) / d;
     in[S_THREAT_AHEAD] = (threat_x * ax + threat_y * ay) * strength;
     in[S_THREAT_RIGHT] = (threat_x * rx + threat_y * ry) * strength;
   }
@@ -520,6 +555,12 @@ static void sense(const Tank *t, int i, float in[N_IN], float *with_group, int *
   // Walls and the seafloor: an arrow pointing away from whichever are near
   float wx = closeness(me->x) - closeness(TANK_W - me->x);
   float wy = closeness(me->y) - closeness(SWIM_FLOOR + EDGE - me->y);
+  for (int k = 0; k < N_OBSTACLES; k++) { // rocks are felt like walls
+    float ox = me->x - OBSTACLES[k][0], oy = me->y - OBSTACLES[k][1];
+    float d = root(ox * ox + oy * oy) + 0.001f, near = closeness(d - OBSTACLES[k][2]);
+    wx += ox / d * near;
+    wy += oy / d * near;
+  }
   in[S_WALL_AHEAD] = wx * ax + wy * ay;
   in[S_WALL_RIGHT] = wx * rx + wy * ry;
 
@@ -685,7 +726,7 @@ static void tend_plants(Tank *t) {
 
   for (int p = 0; p < N_PLANTS; p++) {
     Plant *plant = &t->plants[p];
-    plant->height += PLANT_GROWTH * (0.4f + t->nutrients);
+    plant->height += PLANT_GROWTH * (0.4f + t->nutrients) * t->light * 1.3f; // they need light to grow
     if (plant->height > 1.0f) plant->height = 1.0f;
 
     // Twice a second, a well-grown plant may let go of a pellet of food. Two food
@@ -753,11 +794,28 @@ void tank_step(Tank *t) {
     float wanted = (0.6f + 0.6f * (push[i] + 1.0f)) * f->g.pace * (1.12f - 0.08f * f->size) * (0.7f + 0.3f * f->health / fish_max_health(f));
     if (hunting) wanted *= LUNGE;
     f->speed += (wanted - f->speed) * 0.1f;
-    f->x += f->dx * f->speed;
-    f->y += f->dy * f->speed;
+    f->x += f->dx * f->speed + t->current_x; // the current carries everyone a little
+    f->y += f->dy * f->speed + t->current_y;
 
-    // The glass and the seafloor
+    // The glass, the seafloor and the rocks
     int hit = 0;
+    for (int k = 0; k < N_OBSTACLES; k++) {
+      float ox = f->x - OBSTACLES[k][0], oy = f->y - OBSTACLES[k][1], r = OBSTACLES[k][2] + 4.0f;
+      float d2 = ox * ox + oy * oy;
+      if (d2 < r * r) { // bumped a rock: back out to its edge, and turn away from it
+        float d = root(d2) + 0.001f, nx2 = ox / d, ny2 = oy / d;
+        f->x = OBSTACLES[k][0] + nx2 * r;
+        f->y = OBSTACLES[k][1] + ny2 * r;
+        float into = f->dx * nx2 + f->dy * ny2;
+        if (into < 0.0f) { f->dx -= 2.0f * into * nx2; f->dy -= 2.0f * into * ny2; }
+        hit = 1;
+      }
+    }
+    if (f->tip_ticks) {
+      f->tip_ticks--;
+      float tx = f->tip_x - f->x, ty = f->tip_y - f->y;
+      if (tx * tx + ty * ty < 12.0f * 12.0f) f->tip_ticks = 0; // got there
+    }
     if (f->x < EDGE)          { f->x = EDGE;          if (f->dx < 0.0f) f->dx = -f->dx; hit = 1; }
     if (f->x > TANK_W - EDGE) { f->x = TANK_W - EDGE; if (f->dx > 0.0f) f->dx = -f->dx; hit = 1; }
     if (f->y < EDGE)          { f->y = EDGE;          if (f->dy < 0.0f) f->dy = -f->dy; hit = 1; }
@@ -836,6 +894,76 @@ void tank_step(Tank *t) {
       for (int j = 0; j < N_FISH; j++) t->like[i][j] *= 0.997f;
   }
 
+  // The environment. Day and night: light follows a smooth rise and fall over DAY_TICKS
+  // (the tank starts at midday).
+  float phase = (float)((t->step + DAY_TICKS / 2) % DAY_TICKS) / (float)DAY_TICKS;
+  float tri = phase < 0.5f ? phase * 2.0f : 2.0f - phase * 2.0f;
+  t->light = 0.25f + 0.75f * tri * tri * (3.0f - 2.0f * tri);
+  // The current slowly turns (a full circle about every 35 seconds), mostly sideways.
+  float cx = t->current_x * 0.99998f - t->current_y * 2.5f * 0.0060f;
+  float cy = t->current_y * 0.99998f + t->current_x * 0.4f * 0.0060f;
+  float len = root(cx * cx + cy * cy * 6.25f) + 1e-6f;
+  t->current_x = cx * 0.12f / len;
+  t->current_y = cy * 0.12f / len;
+  // Food drifts with the current and slowly sinks, coming to rest on the sand or a rock.
+  for (int k = 0; k < N_FOOD; k++) {
+    Food *food = &t->food[k];
+    if (!food->there) continue;
+    if (food->y < SWIM_FLOOR) {
+      food->x = clamp(food->x + t->current_x * 1.5f, 4.0f, TANK_W - 4.0f);
+      food->y = clamp(food->y + 0.06f + t->current_y, 4.0f, SWIM_FLOOR);
+      push_out_of_rocks(&food->x, &food->y, 3.0f);
+    }
+  }
+
   tend_plants(t);
   t->step++;
+}
+
+// ---------- words that matter ----------
+
+static int says(const char *text, const char *word) {
+  for (const char *p = text; *p; p++) {
+    const char *a = p, *b = word;
+    while (*a && *b && *a == *b) { a++; b++; }
+    if (!*b) return 1;
+  }
+  return 0;
+}
+
+int tank_hear(Tank *t, int speaker, int listener, const char *text) {
+  if (speaker == listener || speaker < 0 || listener < 0 || speaker >= N_FISH || listener >= N_FISH) return HEARD_NOTHING;
+  if (t->fish[speaker].dead || t->fish[listener].dead) return HEARD_NOTHING;
+  static const char *const HOSTILE[] = {"HATE", "STAY AWAY", "GO AWAY", "PAY", "MONSTER", "TROUBLE", "UGLY", "TASTY",
+    "DINNER", "LUNCH", "WARNED", "REGRET", "AVENGE", "GET YOU", "NEXT", "ATE MY", "BELLY", "FIGHT ME", "BRING IT", "LEAVE ME"};
+  static const char *const KIND[] = {"FRIEND", "WELCOME", "CONGRATS", "LIKE YOU", "TOGETHER", "LOVE", "PROUD", "WELL DONE",
+    "AMAZING", "HELLO", "HI ", "GOOD TO SEE", "MISSED YOU", "TEAM", "SORRY", "PEACE", "WOW"};
+  static const char *const FOOD_TALK[] = {"FOLLOW ME", "PLANTS", "TOP IS GOOD", "NEAR THE", "BY THE", "UP TOP", "SHARE"};
+  for (unsigned k = 0; k < sizeof HOSTILE / sizeof HOSTILE[0]; k++)
+    if (says(text, HOSTILE[k])) { feel(t, listener, speaker, -0.12f); return HEARD_HOSTILE; }
+  for (unsigned k = 0; k < sizeof FOOD_TALK / sizeof FOOD_TALK[0]; k++) {
+    if (!says(text, FOOD_TALK[k])) continue;
+    // The speaker passes on where the food nearest to it is (a pellet, or a plant).
+    const Fish *sp = &t->fish[speaker];
+    float best = 1e9f, bx = 0.0f, by = 0.0f;
+    for (int f = 0; f < N_FOOD; f++) {
+      if (!t->food[f].there) continue;
+      float ox = t->food[f].x - sp->x, oy = t->food[f].y - sp->y;
+      if (ox * ox + oy * oy < best) { best = ox * ox + oy * oy; bx = t->food[f].x; by = t->food[f].y; }
+    }
+    for (int p = 0; p < N_PLANTS; p++) {
+      if (t->plants[p].height < 0.3f) continue;
+      float ox = t->plants[p].x - sp->x, oy = plant_top(&t->plants[p]) - sp->y;
+      if (ox * ox + oy * oy < best) { best = ox * ox + oy * oy; bx = t->plants[p].x; by = plant_top(&t->plants[p]); }
+    }
+    if (best < 1e9f) {
+      Fish *li = &t->fish[listener];
+      li->tip_x = bx; li->tip_y = by; li->tip_ticks = 300;
+      feel(t, listener, speaker, 0.08f);
+      return HEARD_FOOD_TIP;
+    }
+  }
+  for (unsigned k = 0; k < sizeof KIND / sizeof KIND[0]; k++)
+    if (says(text, KIND[k])) { feel(t, listener, speaker, 0.12f); feel(t, speaker, listener, 0.04f); return HEARD_KIND; }
+  return HEARD_NOTHING;
 }
