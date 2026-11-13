@@ -1,0 +1,7 @@
+# The books the Writer's language model learns from, one web address per line.
+# They are downloaded on GitHub during training (never on your own computer).
+# All are public domain, from Project Gutenberg. To change what it learns, edit this list,
+# or put your own .txt files in the books/ folder next to it (both are used).
+https://www.gutenberg.org/cache/epub/11339/pg11339.txt
+https://www.gutenberg.org/cache/epub/2591/pg2591.txt
+https://www.gutenberg.org/cache/epub/1597/pg1597.txt

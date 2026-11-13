@@ -6,7 +6,7 @@
 #include "font.h"
 
 int main(void) {
-  const char *all = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?:.-+";
+  const char *all = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?:.-+,'\"()/;";
   int bad = 0;
   for (const char *p = all; *p; p++) {
     const char *g = font_glyph(*p);
@@ -17,7 +17,7 @@ int main(void) {
   }
   if (bad) return 1;
 
-  const char *lines[] = {"HELLO! STM32F429", "ABCDEFGHIJKLM", "NOPQRSTUVWXYZ", "0123456789 !?:.-+"};
+  const char *lines[] = {"HELLO! STM32F429", "ABCDEFGHIJKLM", "NOPQRSTUVWXYZ", "0123456789 !?:.-+,'\"()/;"};
   for (unsigned l = 0; l < sizeof lines / sizeof lines[0]; l++) {
     for (int row = 0; row < FONT_ROWS; row++) {
       for (const char *p = lines[l]; *p; p++) {
