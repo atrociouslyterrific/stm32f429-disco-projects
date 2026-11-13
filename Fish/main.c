@@ -881,7 +881,7 @@ int main(void) {
   RCC_AHB1ENR |= 1u << 0; // port A, for the button
 
   fish_mirror.magic = 0x48534946u; // "FISH"
-  fish_mirror.version = 7;
+  fish_mirror.version = 8;
 
   tank_init(&tank, 0x1234ABCDu);
   talk_init(0x7A1C0FFEu);

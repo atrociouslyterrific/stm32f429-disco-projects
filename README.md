@@ -26,8 +26,11 @@ sends it to the board.
   - **Personality**: five traits in the genes (boldness, sociability, aggression,
     loyalty, curiosity) change what an animal does, and its brain can sense them.
   - **Brains** have two hidden layers (29 senses, 16 cells, 8 cells, 3 decisions).
+  - **Voices evolve**: voice genes (chattiness, creativity, fondness for "!" and "?",
+    brevity, and eight accent genes that nudge word choice) are inherited and mutated, so
+    families drift into their own dialects.
   - **Genetics**: every animal has a genome (speed, shape, build, thrift, the five
-    traits, colour, pattern, and its brain). When one dies, the best-doing animal has a baby with
+    traits, its voice, colour, pattern, and its brain). When one dies, the best-doing animal has a baby with
     a partner; the baby gets each gene from one parent or the other, with the odd
     mutation, and joins its mum's family. Each animal belongs to the family of one of the
     ten founders. The starting brains are trained on GitHub (`tools/train_fish.c`).

@@ -56,6 +56,8 @@ typedef struct {
   float w[N_WEIGHTS];
 } Brain;
 
+#define VOICE_ACCENT 8
+
 // Genetics. Every animal carries a genome: a set of genes it was born with and keeps for
 // life. A baby gets each gene from one of its two parents (chosen at random), and now and
 // then a gene changes a little on the way (a mutation). So families look and behave alike,
@@ -75,6 +77,14 @@ typedef struct {
   float loyalty;     // loyal animals never attack their own family, and take it hard when
                      // a friend or relative is attacked
   float curiosity;   // curious animals wander off the straight path, exploring
+  // Voice: how it talks (used by Fish/fish_talk.c). Inherited like every other gene, so
+  // families drift into dialects of their own.
+  float chattiness;  // how often it starts a conversation, or keeps one going   0 .. 1
+  float creativity;  // how adventurous its word choices are                     0 .. 1
+  float exclaim;     // fondness for "!"                                         0 .. 1
+  float question;    // fondness for "?"                                         0 .. 1
+  float brevity;     // short lines (1) or long ones (0)                         0 .. 1
+  float accent[VOICE_ACCENT]; // its own lean in which words it picks, -1 .. 1 each
   uint8_t r, g, b; // its colour
   uint8_t marking; // its pattern: 0 plain, 1 a stripe across the middle, 2 a dark back
 } Genome;

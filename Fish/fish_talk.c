@@ -43,6 +43,14 @@ static float kscale[TALK_L][TALK_CTX], vscale[TALK_L][TALK_CTX];
 
 static float scores[TALK_V]; // how likely each character is to come next
 
+// The voice of whoever is speaking (0 = the model's own, plain voice). Its accent genes nudge
+// the model's last step, so each family's way of talking drifts over the generations.
+static const Genome *voice;
+
+// A fixed, made-up direction in the model's thinking for each accent gene, +1 or -1 for each
+// of its numbers (the same everywhere, so an accent means the same thing on every device).
+static float accent_sign(int i, int k) { return ((((uint32_t)(i * 31 + k * 17 + 7) * 2654435761u) >> 13) & 1u) ? 0.125f : -0.125f; }
+
 // out = weights (rows of whole numbers, each row with its own scale) times in
 static void matvec(float *out, const int8_t *w, const float *scale, const float *in, int rows, int cols) {
   for (int r = 0; r < rows; r++) {
@@ -130,6 +138,12 @@ static void forward(int token, int pos) {
     for (int i = 0; i < TALK_D; i++) x[i] += tmp[i];
   }
   layer_norm(h, x, TALK_LNF_G, TALK_LNF_B);
+  if (voice)
+    for (int i = 0; i < TALK_D; i++) {
+      float lean = 0.0f;
+      for (int k = 0; k < VOICE_ACCENT; k++) lean += accent_sign(i, k) * voice->accent[k];
+      h[i] += 0.6f * lean;
+    }
   matvec(scores, TALK_TOK, TALK_TOK_S, h, TALK_V, TALK_D); // the character table, used backwards
 }
 
@@ -328,11 +342,13 @@ void talk_notice(const Tank *t) {
       float dx = t->fish[j].x - t->fish[a].x, dy = t->fish[j].y - t->fish[a].y;
       if (dx * dx + dy * dy < nearest) { nearest = dx * dx + dy * dy; b = j; }
     }
-    if (b >= 0 && !t->fish[a].dead) ask(t->fish[a].energy < 0.3f ? T_HUNGRY : T_GREET, a, b, t, 0, 0);
+    if (b >= 0 && !t->fish[a].dead && rnd() < 0.25f + 0.75f * t->fish[a].g.chattiness) // chatty ones start more
+      ask(t->fish[a].energy < 0.3f ? T_HUNGRY : T_GREET, a, b, t, 0, 0);
   }
 }
 
 static void finish(const Tank *t) {
+  voice = 0;
   int n = now.written;
   while (n > 0 && now.out[n - 1] == ' ') n--;
   now.out[n] = 0;
@@ -351,7 +367,7 @@ static void finish(const Tank *t) {
     ask_turn(now.req.situation + 1, now.req.listener, now.req.speaker, t, now.out, 1, 1);
   } else if (turn + 1 < LONGEST) {
     const char *f = feeling_word(t, now.req.listener, now.req.speaker);
-    float chance = f[0] == 'S' ? 0.35f : 0.6f; // (STRANGER)
+    float chance = (f[0] == 'S' ? 0.35f : 0.6f) * (0.5f + t->fish[now.req.listener].g.chattiness); // (S: STRANGER)
     if (rnd() < chance) ask_turn(T_CHAT, now.req.listener, now.req.speaker, t, now.out, 1, turn + 1);
   }
 }
@@ -368,6 +384,7 @@ void talk_work(const Tank *t, int chars) {
       build_prompt(t, &now.req);
       now.fed = now.written = 0;
       now.active = 1;
+      voice = &t->fish[now.req.speaker].g;
     }
     if (now.fed < now.length) { // reading what's going on
       forward(token_of(now.prompt[now.fed]), now.fed);
@@ -375,7 +392,15 @@ void talk_work(const Tank *t, int chars) {
       chars--;
       continue;
     }
-    int c = pick(0.7f); // writing
+    // Writing, in the speaker's voice: its creativity sets how adventurous the choices are,
+    // and it leans towards "!", "?" or ending the line according to its genes.
+    const Genome *g = voice;
+    if (g) {
+      scores[token_of('!')] += 2.5f * (g->exclaim - 0.5f);
+      scores[token_of('?')] += 2.5f * (g->question - 0.5f);
+      if (now.written >= 6) scores[0] += 2.5f * (g->brevity - 0.5f); // (0 is the end of a line)
+    }
+    int c = pick(g ? 0.55f + 0.35f * g->creativity : 0.7f);
     if (VOCAB[c] == '\n' || now.written == TALK_LINE || now.length + now.written >= TALK_CTX - 1) { finish(t); continue; }
     now.out[now.written++] = VOCAB[c];
     forward(c, now.length + now.written - 1);
@@ -402,6 +427,7 @@ int talk_current(int *speaker, int *listener, char *so_far) {
 
 #ifdef TALK_TOOLS
 int talk_score(const char *prompt, float *out) {
+  voice = 0;
   int n = 0;
   for (; prompt[n]; n++) forward(token_of(prompt[n]), n);
   for (int i = 0; i < TALK_V; i++) out[i] = scores[i];
@@ -410,6 +436,7 @@ int talk_score(const char *prompt, float *out) {
 
 void talk_say(const char *prompt, char *out, uint32_t seed) {
   talk_rng = seed | 1u;
+  voice = 0;
   int n = 0, w = 0;
   for (; prompt[n]; n++) forward(token_of(prompt[n]), n);
   while (w < TALK_LINE) {

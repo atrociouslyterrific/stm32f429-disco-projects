@@ -14,8 +14,9 @@
 //   11 eaten, 12 step of evolution, 13 meal points, 14 most health it can have, 15 kind of animal,
 //   16 id, 17 mum's id, 18 dad's id, 19 family, 20 generation,
 //   21 pace, 22 bulk, 23 thrift, 24 boldness, 25 red, 26 green, 27 blue, 28 pattern,
-//   29 sociability, 30 aggression, 31 loyalty, 32 curiosity
-#define VIEW_PER_FISH 33
+//   29 sociability, 30 aggression, 31 loyalty, 32 curiosity,
+//   33 chattiness, 34 creativity, 35 fondness for "!", 36 fondness for "?", 37 brevity
+#define VIEW_PER_FISH 38
 #define VIEW_FISH_AT  VIEW_HEADER
 #define VIEW_FOOD_AT  (VIEW_FISH_AT + N_FISH * VIEW_PER_FISH) // x, y, there   for each food slot
 #define VIEW_LIKE_AT  (VIEW_FOOD_AT + N_FOOD * 3)             // N_FISH x N_FISH feelings

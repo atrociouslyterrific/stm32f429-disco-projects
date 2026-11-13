@@ -172,6 +172,12 @@ void fish_random_genes(Fish *f, uint32_t *rng) {
   f->g.aggression = rng_unit(rng);
   f->g.loyalty = rng_unit(rng);
   f->g.curiosity = rng_unit(rng);
+  f->g.chattiness = rng_unit(rng);
+  f->g.creativity = rng_unit(rng);
+  f->g.exclaim = rng_unit(rng);
+  f->g.question = rng_unit(rng);
+  f->g.brevity = rng_unit(rng);
+  for (int k = 0; k < VOICE_ACCENT; k++) f->g.accent[k] = clamp(rng_normal(rng) * 0.35f, -1.0f, 1.0f);
 }
 
 static float fight_point(const Fish *f) { return -0.65f + 0.3f * f->g.aggression; }
@@ -293,6 +299,12 @@ int tank_replace(Tank *t, int gone) {
   baby->g.aggression = inherit(t, mum->g.aggression, dad->g.aggression, 0.0f, 1.0f);
   baby->g.loyalty = inherit(t, mum->g.loyalty, dad->g.loyalty, 0.0f, 1.0f);
   baby->g.curiosity = inherit(t, mum->g.curiosity, dad->g.curiosity, 0.0f, 1.0f);
+  baby->g.chattiness = inherit(t, mum->g.chattiness, dad->g.chattiness, 0.0f, 1.0f);
+  baby->g.creativity = inherit(t, mum->g.creativity, dad->g.creativity, 0.0f, 1.0f);
+  baby->g.exclaim = inherit(t, mum->g.exclaim, dad->g.exclaim, 0.0f, 1.0f);
+  baby->g.question = inherit(t, mum->g.question, dad->g.question, 0.0f, 1.0f);
+  baby->g.brevity = inherit(t, mum->g.brevity, dad->g.brevity, 0.0f, 1.0f);
+  for (int k = 0; k < VOICE_ACCENT; k++) baby->g.accent[k] = inherit(t, mum->g.accent[k], dad->g.accent[k], -1.0f, 1.0f);
   baby->g.r = inherit_colour(t, mum->g.r, dad->g.r);
   baby->g.g = inherit_colour(t, mum->g.g, dad->g.g);
   baby->g.b = inherit_colour(t, mum->g.b, dad->g.b);

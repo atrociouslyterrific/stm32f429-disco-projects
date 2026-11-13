@@ -126,6 +126,8 @@ EXPORT char *web_talk_now_text(void) { return so_far; }
 
 // The rocks (centre x, centre y, radius each), and the environment.
 EXPORT const float *web_obstacles(void) { return &OBSTACLES[0][0]; }
+EXPORT const float *web_accent(int i) { return tank.fish[i].g.accent; } // its VOICE_ACCENT accent genes
+EXPORT int web_n_accent(void) { return VOICE_ACCENT; }
 EXPORT int web_n_obstacles(void) { return N_OBSTACLES; }
 EXPORT float web_light(void) { return tank.light; }
 EXPORT float web_current_x(void) { return tank.current_x; }

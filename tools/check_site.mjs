@@ -96,7 +96,8 @@ if (sim.web_talk_available()) {
 
 // Genetics and families
 const GENE_RANGES = [[21, 0.85, 1.25, "speed"], [5, 0.8, 1.25, "shape"], [22, 0.85, 1.3, "build"], [23, 0.8, 1.2, "thrift"], [24, 0, 1, "boldness"],
-  [29, 0, 1, "sociability"], [30, 0, 1, "aggression"], [31, 0, 1, "loyalty"], [32, 0, 1, "curiosity"]];
+  [29, 0, 1, "sociability"], [30, 0, 1, "aggression"], [31, 0, 1, "loyalty"], [32, 0, 1, "curiosity"],
+  [33, 0, 1, "chattiness"], [34, 0, 1, "creativity"], [35, 0, 1, "exclaiming"], [36, 0, 1, "questions"], [37, 0, 1, "brevity"]];
 const animalIds = new Set();
 let deepest = 0;
 for (let i = 0; i < N; i++) {

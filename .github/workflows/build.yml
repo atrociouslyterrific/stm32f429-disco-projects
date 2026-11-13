@@ -64,6 +64,15 @@ jobs:
           if gh release download fish-talk -p talk_model.h -p talk_training.json -D build/gen --clobber \
              && grep -q "define TALK_FORMAT 1$" build/gen/talk_model.h; then
             echo "Using the trained talk model"
+            # Check the talk code (as changed in this build) still gives the trained model's answers.
+            if gh release download fish-talk -p talk_reference.txt -D build --clobber; then
+              gcc -O2 -Wall -DTALK_TOOLS -DTALK_KV_FLOAT -IFish -Ibuild/gen tools/talk_test.c Fish/fish_talk.c Fish/fish_sim.c -lm -o build/talk_exact
+              gcc -O2 -Wall -DTALK_TOOLS -IFish -Ibuild/gen tools/talk_test.c Fish/fish_talk.c Fish/fish_sim.c -lm -o build/talk_board
+              build/talk_exact build/talk_reference.txt
+              build/talk_board build/talk_reference.txt
+            else
+              echo "(no reference answers saved with this model yet: skipping the talk check)"
+            fi
           else
             echo "No usable talk model yet: the animals will stay quiet"
             rm -f build/gen/talk_model.h build/gen/talk_training.json

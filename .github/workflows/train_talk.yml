@@ -14,13 +14,9 @@ on:
         default: "30"
   push:
     branches: [main]
-    paths:  # what it learns from, or how it is built, changed
+    paths:  # what it learns from, or how it learns, changed (the build checks the talk code itself)
       - "tools/talk_corpus.py"
       - "tools/train_talk.py"
-      - "tools/talk_test.c"
-      - "Fish/fish_talk.c"
-      - "Fish/fish_talk.h"
-      - ".github/workflows/train_talk.yml"
 
 permissions:
   contents: write
@@ -107,4 +103,4 @@ jobs:
           gh release view fish-talk >/dev/null 2>&1 || \
             gh release create fish-talk --title "Fish talk model" \
               --notes "The animals' language model, trained on GitHub: talk_model.h (for the board and the website) and the training summary. Replaced by every training run."
-          gh release upload fish-talk work/talk_model.h work/talk_training.json work/talk_model.pt --clobber
+          gh release upload fish-talk work/talk_model.h work/talk_training.json work/talk_model.pt work/talk_reference.txt --clobber
