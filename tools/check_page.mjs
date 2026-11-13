@@ -37,7 +37,18 @@ const zoomedIn = await treeWidth();
 await page.click("#tree-fit");
 const boxWidth = await page.evaluate(() => document.querySelector(".ft-wrap").clientWidth);
 const refitted = await treeWidth();
-const zoomOk = zoomedOut < fitted && zoomedIn > fitted && refitted <= boxWidth && refitted === fitted;
+// What is actually drawn on screen, not just the size asked for: zoom in, measure, photograph.
+await page.click("#tree-in"); await page.click("#tree-in");
+const drawn = await page.evaluate(() => {
+  const t = document.querySelector("#tree svg"), r = t.getBoundingClientRect(), node = t.querySelector(".ft-node circle").getBoundingClientRect();
+  return { asked: [+t.getAttribute("width"), +t.getAttribute("height")], drawn: [Math.round(r.width), Math.round(r.height)], dot: [Math.round(node.width), Math.round(node.height)] };
+});
+console.log("family tree zoomed in, asked for " + drawn.asked.join("x") + ", drawn at " + drawn.drawn.join("x") + ", one dot " + drawn.dot.join("x"));
+await page.locator(".ft-wrap").screenshot({ path: process.argv[3].replace(/\.png$/, "-tree-zoomed.png") });
+await page.click("#tree-fit");
+await page.locator(".ft-wrap").screenshot({ path: process.argv[3].replace(/\.png$/, "-tree-fit.png") });
+const drawnOk = Math.abs(drawn.drawn[0] - drawn.asked[0]) <= 2 && Math.abs(drawn.drawn[1] - drawn.asked[1]) <= 2 && Math.abs(drawn.dot[0] - drawn.dot[1]) <= 1;
+const zoomOk = zoomedOut < fitted && zoomedIn > fitted && refitted <= boxWidth && refitted === fitted && drawnOk;
 console.log("family tree zoom: fit " + fitted + "px, out " + zoomedOut + "px, in " + zoomedIn + "px, box " + boxWidth + "px");
 
 const facts = await page.evaluate(() => {
