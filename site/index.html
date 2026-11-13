@@ -86,6 +86,8 @@
   .dash-tile .label { color: var(--muted); font-size: .78rem; }
   .dash-tile .value { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .dash-tile .note { color: var(--muted); font-size: .74rem; }
+  #writer-text { width: 100%; font: 14px/1.5 ui-monospace, Menlo, monospace; text-transform: uppercase; padding: 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); resize: vertical; }
   ul.timeline { list-style: none; margin: 0; padding: 0; }
   ul.timeline li { display: grid; grid-template-columns: 120px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .88rem; }
   ul.timeline li:last-child { border-bottom: 0; }
@@ -219,7 +221,7 @@
   <p class="sub">Programs for the STM32F429I-DISCO board: put one on the board, see how the latest build went,
     watch the fish, and follow their training.</p>
   <nav class="jump" aria-label="Sections">
-    <a href="#flash">Flash</a><a href="#tank-card">Tank</a><a href="#talk-card">Talk</a><a href="#evolution">Evolution</a><a href="#genes">Genes</a>
+    <a href="#flash">Flash</a><a href="#writer-card">Writer</a><a href="#tank-card">Tank</a><a href="#talk-card">Talk</a><a href="#evolution">Evolution</a><a href="#genes">Genes</a>
     <a href="#families-card">Families</a><a href="#tree-card">Family tree</a><a href="#brain-card">Brain</a><a href="#training-card">Training</a>
   </nav>
   <p id="newer" class="pill busy" style="white-space:normal;border-radius:10px;padding:8px 14px;margin:0 0 16px" hidden>
@@ -235,6 +237,11 @@
     <h2>Put a program on the board</h2>
     <p class="lead">This page is build <span id="build">__BUILD__</span>. Use Chrome or Edge on a computer.</p>
 
+    <div class="prog">
+      <div><span class="name">Writer</span><span class="size" data-size="Writer"></span></div>
+      <p class="desc">Our own language model, trained on GitHub on fairy tales and fables, running on the board. Type the start of a story on the keyboard, tap WRITE, and it carries on writing it.</p>
+      <button class="go" data-file="Writer.bin" data-done="A keyboard should fill the bottom of the screen. Type the start of a story, then tap WRITE.">Flash</button>
+    </div>
     <div class="prog">
       <div><span class="name">Fish</span><span class="size" data-size="Fish"></span></div>
       <p class="desc">A small ecosystem: ten sea animals with their own AI brains over a seafloor of plants. They start as tiny fry, eat, grow and evolve into squid, turtles, sharks, rays, orcas and whales, make friends and enemies, hunt and fight. Tap the screen to feed them.</p>
@@ -316,6 +323,40 @@
     <h3>What's been happening</h3>
     <ol class="events" id="events"><li class="muted">Nothing yet. Give them a minute.</li></ol>
     <p id="tank-note" class="muted small" style="margin:10px 0 0"></p>
+  </div>
+
+  <div class="card" id="writer-card">
+    <h2>Writer: our own language model</h2>
+    <p class="lead">A language model we built from scratch and trained on GitHub, on public-domain fairy tales and fables
+      (Aesop, the Brothers Grimm, Hans Christian Andersen). It writes one character at a time, and it's small enough to
+      run on the board itself (the Writer program). Here it runs in your browser: type the start of a story, or leave the
+      box empty, and press Write.</p>
+    <textarea id="writer-text" rows="7" spellcheck="false" aria-label="Story text">ONCE UPON A TIME </textarea>
+    <div class="tank-bar" style="justify-content:flex-start">
+      <button id="writer-go" type="button">Write</button>
+      <label class="small">Adventurousness <input id="writer-temp" type="range" min="0.3" max="1.2" step="0.05" value="0.75"></label>
+      <span id="writer-state" class="muted small" role="status"></span>
+    </div>
+    <h3>Its training</h3>
+    <p id="writer-live" class="pill busy" style="white-space:normal;border-radius:10px;padding:6px 12px;margin:0 0 12px" hidden></p>
+    <p id="writer-summary" class="small" style="margin:0 0 8px">Loading…</p>
+    <div id="writer-dash" class="dash"></div>
+    <div class="legend">
+      <span><i style="border-color:var(--series-2)"></i>Text it trains on</span>
+      <span><i style="border-color:var(--series-1)"></i>Text it never sees (the real test)</span>
+    </div>
+    <div class="chart" id="writer-chart"><svg role="img" aria-label="Line chart of how surprised the Writer's model is by the next character, falling as it trains" style="height:200px"></svg><div class="tip" id="writer-tip"></div></div>
+    <div id="writer-timeline-wrap" hidden>
+      <h3>How its writing improved</h3>
+      <ul id="writer-timeline" class="timeline"></ul>
+    </div>
+    <h3>What it wrote at the end of its latest training</h3>
+    <ul id="writer-samples" class="talk-samples"></ul>
+    <p class="muted small" style="margin:10px 0 0">What it learns from is listed in
+      <a href="https://github.com/__REPO__/blob/main/Writer/books.txt">Writer/books.txt</a>; you can add your own .txt files to
+      <a href="https://github.com/__REPO__/tree/main/Writer/books">Writer/books</a> on GitHub, and it retrains with them.
+      To give it more training, <a href="https://github.com/__REPO__/actions/workflows/train_writer.yml">start a run on GitHub</a>
+      (it carries on from the last).</p>
   </div>
 
   <div class="card" id="talk-card">
@@ -952,13 +993,14 @@ function dashboard(id, bar, tiles) {
   host.append(grid);
 }
 
-function talkDashboard(t) {
+function talkDashboard(t) { modelDashboard(t, { dash: "talk-dash", timeline: "talk-timeline", wrap: "talk-timeline-wrap" }); }
+function modelDashboard(t, ids) {
   const running = t.state === "training" && Date.now() / 1000 - t.updated < 120;
   const secs = (t.minutes || 0) * 60, budget = (t.budget_minutes || t.minutes || 0) * 60;
   const chars = t.chars_seen || (t.step || 0) * (t.batch || 48) * (t.memory || 128);
   const words = t.words_seen || chars / 5.6;
   const speed = secs ? chars / secs : 0;
-  dashboard("talk-dash",
+  dashboard(ids.dash,
     running ? { done: secs, total: budget, label: "This training run: " + fmtDuration(secs) + " of " + fmtDuration(budget) +
       " · about " + fmtDuration(budget - secs) + " to go" } :
       { done: 1, total: 1, label: "Finished: trained for " + fmtDuration(secs) + (t.total_minutes ? " this run, " + fmtDuration(t.total_minutes * 60) + " in all" : "") },
@@ -973,17 +1015,17 @@ function talkDashboard(t) {
     ]);
 
   // How its lines improved: the samples it wrote at different points in training.
-  const list = $("talk-timeline");
+  const list = $(ids.timeline);
   list.replaceChildren();
   for (const snap of (t.timeline || []).slice(-6)) {
     const li = el("li");
     li.append(el("span", "after " + fmtDuration(snap.minutes * 60), "when"));
     const lines = el("span", undefined, "what");
-    for (const [, line] of snap.samples.slice(0, 2)) lines.append(el("span", "“" + line + "”"));
+    for (const [, line] of snap.samples.slice(0, 2)) lines.append(el("span", "“" + line.replace(/\n/g, " / ") + "”"));
     li.append(lines);
     list.append(li);
   }
-  $("talk-timeline-wrap").hidden = !(t.timeline && t.timeline.length);
+  $(ids.wrap).hidden = !(t.timeline && t.timeline.length);
 }
 
 function brainDashboard(fish) {
@@ -1090,8 +1132,8 @@ function showTalk(t) {
   }
 }
 
-function drawTalkChart(pts) {
-  const box = $("talk-chart"), root = box.querySelector("svg");
+function drawTalkChart(pts, chartId = "talk-chart", tipId = "talk-tip") {
+  const box = $(chartId), root = box.querySelector("svg");
   root.replaceChildren();
   const W = box.clientWidth, H = 200;
   if (W < 200) return;
@@ -1119,7 +1161,7 @@ function drawTalkChart(pts) {
       root.append(t);
     }
   }
-  const tip = $("talk-tip"), catcher = svg("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+  const tip = $(tipId), catcher = svg("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
   root.append(catcher);
   catcher.addEventListener("pointerleave", () => { tip.style.display = "none"; });
   catcher.addEventListener("pointermove", (ev) => {
@@ -1132,6 +1174,100 @@ function drawTalkChart(pts) {
     tip.style.top = "8px";
   });
 }
+
+// ---------- the Writer: our own language model ----------
+
+let writerShownStep = -1;
+
+function showWriter(t) {
+  if (!t) return;
+  modelDashboard(t, { dash: "writer-dash", timeline: "writer-timeline", wrap: "writer-timeline-wrap" });
+  const running = t.state === "training" && Date.now() / 1000 - t.updated < 120;
+  $("writer-live").hidden = !running;
+  if (running) $("writer-live").textContent = "Training on GitHub right now: step " + t.step.toLocaleString() + ", " +
+    t.minutes + " of " + t.budget_minutes + " minutes. The samples below update as it learns.";
+  if (t.state !== "training" && t.step < writerShownStep) return;
+  writerShownStep = t.step;
+  const last = t.history && t.history.length ? t.history[t.history.length - 1] : null;
+  $("writer-summary").textContent = (t.params ? t.params.toLocaleString() + " numbers" : "A small model") +
+    (t.layers ? " in " + t.layers + " layers, reading " + t.memory + " characters back" : "") + ". " +
+    (running ? "So far: " : "Trained for ") + (t.total_steps || t.step).toLocaleString() + " steps" +
+    (last ? "; its surprise at the next character is down to " + last[2].toFixed(2) + " on text it never trained on." : ".");
+  if (t.history && t.history.length > 1) drawTalkChart(t.history, "writer-chart", "writer-tip");
+  const list = $("writer-samples");
+  list.replaceChildren();
+  for (const [prompt, line] of t.samples || []) {
+    const li = el("li");
+    li.append(el("code", prompt), el("b", line.replace(/\n/g, " / ")));
+    list.append(li);
+  }
+}
+
+async function pollWriter() {
+  try {
+    const r = await fetch("https://raw.githubusercontent.com/" + REPO + "/status-writer/writer.json?t=" + Date.now(), { cache: "no-store" });
+    if (r.ok) showWriter(await r.json());
+  } catch (e) { /* nothing to show right now */ }
+}
+pollWriter();
+setInterval(pollWriter, 30000);
+
+// Try it here: the same model as the board's, running in this page.
+async function startWriter() {
+  const box = $("writer-text"), go = $("writer-go"), state = $("writer-state");
+  let wr;
+  try {
+    const bytes = await (await fetch("writer-__BUILD__.wasm", { cache: "no-store" })).arrayBuffer();
+    wr = (await WebAssembly.instantiate(bytes, {})).instance.exports;
+  } catch (e) { state.textContent = "The Writer couldn't start in this browser."; go.disabled = true; return; }
+  if (!wr.wr_available()) {
+    go.disabled = true;
+    state.textContent = "It hasn't learned to write yet: its first training is running on GitHub.";
+    return;
+  }
+  wr.wr_seed((Math.random() * 0xFFFFFFFF) >>> 0);
+  let running = false, written = 0;
+  const known = (c) => wr.wr_known(c.charCodeAt(0));
+  function read(text) { // have the model read the end of the text
+    wr.wr_reset();
+    const keep = Math.floor(wr.wr_memory() * 3 / 4);
+    const tail = [...text.slice(-keep)].filter(known);
+    if (!tail.length) wr.wr_feed(10); // nothing to go on: start a fresh story
+    for (const c of tail) wr.wr_feed(c.charCodeAt(0));
+  }
+  function stop() { running = false; go.textContent = "Write"; state.textContent = written ? "Tap Write for more." : ""; }
+  function step() {
+    if (!running) return;
+    const temperature = +$("writer-temp").value;
+    let add = "";
+    for (let n = 0; n < 3 && written < 500; n++) {
+      if (wr.wr_pos() >= wr.wr_memory()) read(box.value + add);
+      const c = String.fromCharCode(wr.wr_next(temperature));
+      wr.wr_feed(c.charCodeAt(0));
+      add += c;
+      written++;
+    }
+    box.value += add;
+    box.scrollTop = box.scrollHeight;
+    if (written >= 500) { stop(); return; }
+    setTimeout(step, 16);
+  }
+  go.addEventListener("click", () => {
+    if (running) { stop(); return; }
+    // It only knows capitals (like the board's font), so the text is put into capitals.
+    let text = box.value.toUpperCase();
+    if (text && !/[\s\n]$/.test(text)) text += " ";
+    box.value = text;
+    read(text);
+    written = 0;
+    running = true;
+    go.textContent = "Stop";
+    state.textContent = "Writing…";
+    step();
+  });
+  state.textContent = "Type the start of a story (or leave it empty), then Write.";
+}
+startWriter();
 
 async function pollTalk() {
   try {
@@ -1163,6 +1299,8 @@ async function loadPublished() {
 
     showTraining(s.fish || null);
     if (s.talk) showTalk(s.talk);
+    if (s.writer) showWriter(s.writer);
+    else if (writerShownStep < 0) $("writer-summary").textContent = "Not trained yet: its first training run is going on GitHub.";
     else if (talkShownStep < 0) $("talk-summary").textContent = "Not trained yet: the animals stay quiet until the first training run on GitHub finishes.";
     return s;
   } catch (e) {

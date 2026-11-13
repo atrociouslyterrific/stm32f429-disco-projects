@@ -32,7 +32,7 @@ for (const [, file] of html.matchAll(/from "\.\/([^"]+)"/g)) if (!fs.existsSync(
 const build = (html.match(/fish-(\d+)\.wasm/) || [])[1];
 if (!build) problem("the page doesn't name its fish rules file by build");
 else if (!fs.existsSync(path.join(site, "fish-" + build + ".wasm"))) problem("missing file fish-" + build + ".wasm");
-for (const file of ["fish.wasm", "status.json", "Fish.bin", "Blink.bin", "HelloScreen.bin"]) if (!fs.existsSync(path.join(site, file))) problem("missing file " + file);
+for (const file of ["fish.wasm", "writer.wasm", "status.json", "Fish.bin", "Writer.bin", "Blink.bin", "HelloScreen.bin"]) if (!fs.existsSync(path.join(site, file))) problem("missing file " + file);
 
 // 4. Every element the scripts look up by name must be on the page.
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]));
@@ -130,6 +130,22 @@ console.log("  brain: " + nW + " connections; biggest animal now size " + bigges
 
 const senseLabels = (html.match(/const SENSES = \[([\s\S]*?)\];/) || [, ""])[1].match(/"[^"]*"/g) || [];
 if (senseLabels.length !== sim.web_n_in()) problem("the page names " + senseLabels.length + " senses but the brain has " + sim.web_n_in());
+
+// The Writer's model, as the page will run it
+const wbuild = (html.match(/writer-(\d+)\.wasm/) || [])[1];
+if (!wbuild || !fs.existsSync(path.join(site, "writer-" + wbuild + ".wasm"))) problem("missing the Writer's model file for this build");
+else {
+  const wr = (await WebAssembly.instantiate(fs.readFileSync(path.join(site, "writer-" + wbuild + ".wasm")), {})).instance.exports;
+  for (const [, name] of html.matchAll(/\bwr\.(wr_\w+)/g)) if (typeof wr[name] !== "function") problem("the page calls wr." + name + ", which writer.wasm does not have");
+  if (wr.wr_available()) {
+    wr.wr_seed(42); wr.wr_reset();
+    for (const c of "ONCE UPON A TIME ") wr.wr_feed(c.charCodeAt(0));
+    let out = "";
+    while (out.length < 200 && wr.wr_pos() < wr.wr_memory()) { const c = String.fromCharCode(wr.wr_next(0.75)); out += c; wr.wr_feed(c.charCodeAt(0)); }
+    console.log("  writer: ONCE UPON A TIME " + out.replace(/\n/g, " / "));
+    if (/[^A-Z0-9 \n!"'(),\-.\/:;?]/.test(out)) problem("the Writer wrote characters the board can't draw");
+  } else console.log("  writer: not trained yet");
+}
 
 // 6. The board's "window" for the website must be the size the page will ask for.
 const status = JSON.parse(fs.readFileSync(path.join(site, "status.json"), "utf8"));

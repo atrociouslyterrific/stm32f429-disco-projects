@@ -2,7 +2,7 @@
 # (see .github/workflows/build.yml), not on your own computer.
 #
 # To add a program: make a folder with a main.c in it and add its name here.
-PROGRAMS = Blink HelloScreen Fish
+PROGRAMS = Blink HelloScreen Fish Writer
 
 CC      = arm-none-eabi-gcc
 OBJCOPY = arm-none-eabi-objcopy
@@ -45,11 +45,24 @@ build/gen/fish_brains.h:
 	build/train_fish --brains $@ --results build/gen/fish_training.json
 
 # The same fish rules and trained brains, built for web browsers (for the status website).
-web: build/fish.wasm
+web: build/fish.wasm build/writer.wasm
 build/fish.wasm: build/gen/fish_brains.h build/gen/talk_model.h FORCE
 	clang --target=wasm32 -O2 -ffreestanding -fno-builtin -nostdlib -Wall \
 	  -Wl,--no-entry -Wl,--export-dynamic -IFish -Ibuild/gen \
 	  tools/fish_web.c Fish/fish_sim.c Fish/fish_view.c Fish/fish_talk.c -o $@
+
+# The Writer's model comes from the "Train writer" workflow (downloaded into build/gen by the
+# build). Until one has been trained, a stand-in makes the Writer say so.
+build/Writer.elf: build/gen/lm_model.h
+build/gen/lm_model.h:
+	mkdir -p build/gen
+	cp Writer/lm_model_none.h $@
+
+# The Writer's model for web browsers (the website's "try it" box).
+build/writer.wasm: build/gen/lm_model.h FORCE
+	clang --target=wasm32 -O2 -ffreestanding -fno-builtin -nostdlib -Wall \
+	  -Wl,--no-entry -Wl,--export-dynamic -IWriter -Ibuild/gen \
+	  tools/lm_web.c Writer/lm.c -o $@
 
 clean:
 	rm -rf build

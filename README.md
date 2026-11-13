@@ -9,6 +9,11 @@ sends it to the board.
 
 - **Blink** — the two lights beside the screen take turns: green, then red, half a second each.
 - **HelloScreen** — lights up the screen: a greeting, three colour bars and a seconds counter.
+- **Writer** — our own language model, running on the board. Type the start of a story on
+  the on-screen keyboard and tap WRITE; it carries on writing, one letter at a time. The
+  model (a 4-layer character-level transformer) is trained on GitHub by the **Train writer**
+  workflow on the books listed in `Writer/books.txt` plus any `.txt` files in `Writer/books/`;
+  each run carries on from the last. The website runs the same model in the browser.
 - **Fish** — a small ecosystem. Ten sea animals, each steered by its own neural-network
   brain, live over a seafloor of sand, rocks and plants.
   - Plants grow (faster when the water is rich in nutrients) and release food. Dead
