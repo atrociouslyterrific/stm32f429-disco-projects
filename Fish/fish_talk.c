@@ -158,15 +158,16 @@ static int pick(float temperature) {
 // ---------- what gets talked about ----------
 
 // The situations, as the model was taught them. Each opening line (even number) is
-// answered with the one after it.
+// answered with the one after it; after that, a conversation may carry on as CHAT.
 enum { T_BITE, T_BITTEN, T_FIGHT, T_FOUGHT, T_BORN, T_NEWBORN, T_LIKE, T_LIKED, T_HATE, T_HATED,
-       T_EVOLVE, T_EVOLVED, T_MOURN, T_GLOAT, T_GREET, T_GREETED, T_HUNGRY, T_BEGGED };
+       T_EVOLVE, T_EVOLVED, T_MOURN, T_GLOAT, T_GREET, T_GREETED, T_HUNGRY, T_BEGGED, T_CHAT };
 static const char *const SITUATION[] = {"BITE", "BITTEN", "FIGHT", "FOUGHT", "BORN", "NEWBORN", "LIKE", "LIKED",
-  "HATE", "HATED", "EVOLVE", "EVOLVED", "MOURN", "GLOAT", "GREET", "GREETED", "HUNGRY", "BEGGED"};
+  "HATE", "HATED", "EVOLVE", "EVOLVED", "MOURN", "GLOAT", "GREET", "GREETED", "HUNGRY", "BEGGED", "CHAT"};
+#define LONGEST 4 // lines in one conversation
 static const char *const KIND_WORD[N_KINDS] = {"FRY", "SQUID", "TURTLE", "SHARK", "RAY", "ORCA", "WHALE"};
 
 typedef struct {
-  uint8_t situation, speaker, listener;
+  uint8_t situation, speaker, listener, turn; // turn: 0 the opening line, 1 the reply, ...
   uint16_t speaker_id, listener_id;
   char said[TALK_LINE + 1]; // what the other one said (for a reply)
 } Request;
@@ -192,10 +193,10 @@ static struct {
 static TalkLine done[DONE];
 static int done_first, done_count;
 
-static void ask(int situation, int speaker, int listener, const Tank *t, const char *said, int urgent) {
+static void ask_turn(int situation, int speaker, int listener, const Tank *t, const char *said, int urgent, int turn) {
   if (speaker == listener || speaker >= N_FISH || listener >= N_FISH) return;
   if (queued == QUEUE) { if (!urgent) return; queued--; } // full: an urgent one pushes out the last
-  Request r = {(uint8_t)situation, (uint8_t)speaker, (uint8_t)listener, t->fish[speaker].id, t->fish[listener].id, {0}};
+  Request r = {(uint8_t)situation, (uint8_t)speaker, (uint8_t)listener, (uint8_t)turn, t->fish[speaker].id, t->fish[listener].id, {0}};
   if (said) { int i = 0; for (; said[i] && i < TALK_LINE; i++) r.said[i] = said[i]; r.said[i] = 0; }
   if (urgent) { // to the front of the queue
     for (int i = queued; i > 0; i--) queue[i] = queue[i - 1];
@@ -204,6 +205,10 @@ static void ask(int situation, int speaker, int listener, const Tank *t, const c
     queue[queued] = r;
   }
   queued++;
+}
+
+static void ask(int situation, int speaker, int listener, const Tank *t, const char *said, int urgent) {
+  ask_turn(situation, speaker, listener, t, said, urgent, 0);
 }
 
 static int alive(const Tank *t, int i, uint16_t id) { return !t->fish[i].dead && t->fish[i].id == id; }
@@ -338,9 +343,17 @@ static void finish(const Tank *t) {
   line->speaker = now.req.speaker;
   line->listener = now.req.listener;
   for (int i = 0; i <= n; i++) line->text[i] = now.out[i];
-  // The other one answers, having heard it.
-  if ((now.req.situation & 1) == 0 && alive(t, now.req.listener, now.req.listener_id) && alive(t, now.req.speaker, now.req.speaker_id))
-    ask(now.req.situation + 1, now.req.listener, now.req.speaker, t, now.out, 1);
+  // The other one answers, having heard it; after the reply, they may carry on (friends and
+  // enemies have more to say to each other than strangers do).
+  if (!alive(t, now.req.listener, now.req.listener_id) || !alive(t, now.req.speaker, now.req.speaker_id)) return;
+  int turn = now.req.turn;
+  if (turn == 0) {
+    ask_turn(now.req.situation + 1, now.req.listener, now.req.speaker, t, now.out, 1, 1);
+  } else if (turn + 1 < LONGEST) {
+    const char *f = feeling_word(t, now.req.listener, now.req.speaker);
+    float chance = f[0] == 'S' ? 0.35f : 0.6f; // (STRANGER)
+    if (rnd() < chance) ask_turn(T_CHAT, now.req.listener, now.req.speaker, t, now.out, 1, turn + 1);
+  }
 }
 
 void talk_work(const Tank *t, int chars) {

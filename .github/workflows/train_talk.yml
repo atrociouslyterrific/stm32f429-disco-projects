@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: train-talk
-  cancel-in-progress: true  # a newer change makes an older run pointless
+  cancel-in-progress: false  # (each run carries on from the last, so let a run finish)
 
 jobs:
   train:
@@ -45,6 +45,15 @@ jobs:
 
       - name: Install PyTorch (on GitHub's computer)
         run: pip install --quiet torch==2.5.1 numpy==2.1.3
+
+      - name: Fetch the model trained so far (to carry on from)
+        run: |
+          mkdir -p work
+          mkdir -p work/previous
+          gh release download fish-talk -p talk_model.pt -p talk_model.h -p talk_training.json -D work/previous --clobber \
+            && echo "Carrying on from the last training run" \
+            || echo "No earlier model: starting from scratch"
+          ls -l work/previous || true
 
       - name: Write the practice conversations
         run: |
@@ -74,7 +83,8 @@ jobs:
             ) && FIRST=0 || echo "(couldn't publish progress this time)"
           }
 
-          TRAIN_MINUTES="$MINUTES" python3 -u tools/train_talk.py work/corpus.txt work &
+          TRAIN_MINUTES="$MINUTES" python3 -u tools/train_talk.py work/corpus.txt work \
+            work/previous/talk_model.pt work/previous/talk_model.h work/previous/talk_training.json &
           TRAINER=$!
           while kill -0 "$TRAINER" 2>/dev/null; do
             sleep 30
@@ -97,4 +107,4 @@ jobs:
           gh release view fish-talk >/dev/null 2>&1 || \
             gh release create fish-talk --title "Fish talk model" \
               --notes "The animals' language model, trained on GitHub: talk_model.h (for the board and the website) and the training summary. Replaced by every training run."
-          gh release upload fish-talk work/talk_model.h work/talk_training.json --clobber
+          gh release upload fish-talk work/talk_model.h work/talk_training.json work/talk_model.pt --clobber

@@ -9,7 +9,8 @@ Each line of the output is one thing an animal says, with what the model is told
     EVENT KIND TRAIT TRAIT FEELING NAME SAID what they said: its reply
 
 EVENT    what is going on (BITE, BITTEN, FIGHT, FOUGHT, BORN, NEWBORN, LIKE, LIKED, HATE,
-         HATED, EVOLVE, EVOLVED, MOURN, GLOAT, GREET, GREETED, HUNGRY, BEGGED)
+         HATED, EVOLVE, EVOLVED, MOURN, GLOAT, GREET, GREETED, HUNGRY, BEGGED), or CHAT
+         when a conversation carries on past the first reply
 KIND     what animal is speaking (FRY, SQUID, TURTLE, SHARK, RAY, ORCA, WHALE)
 TRAIT    its two strongest personality traits (or EVEN)
 FEELING  how it feels about who it is talking to (FRIEND, ENEMY, FAMILY, STRANGER)
@@ -195,6 +196,20 @@ SAY = {
     },
 }
 
+# Carrying a conversation on, by how the speaker feels about the other.
+CHAT = {
+    "FRIEND": ["HA! GOOD ONE {N}", "LETS SWIM TO THE PLANTS", "STAY CLOSE {N}", "YOU ALWAYS SAY THAT", "WHAT NEXT {N}?",
+               "I AM WITH YOU {N}", "WATCH OUT FOR SHARKS", "RACE YOU TO THE TOP!", "LOVE THIS CURRENT", "IT IS GETTING DARK {N}",
+               "FOLLOW ME {N}", "SAME AS ALWAYS {N}", "YOU ARE THE BEST {N}"],
+    "FAMILY": ["STAY CLOSE {N}", "THE FAMILY STICKS TOGETHER", "YOU MAKE ME PROUD {N}", "MIND THE ROCKS {N}",
+               "TIME TO EAT {N}", "WHERE IS EVERYONE?", "I WILL KEEP YOU SAFE"],
+    "ENEMY": ["SAY THAT AGAIN {N}", "YOU DO NOT SCARE ME", "THIS IS NOT OVER {N}", "GO BOTHER SOMEONE ELSE", "I AM WATCHING YOU {N}",
+              "LAST WARNING {N}", "STAY BY YOUR ROCK", "WHATEVER {N}", "MAKE ME"],
+    "STRANGER": ["OK THEN", "NICE TO MEET YOU {N}", "I GUESS SO", "WHO ARE YOU AGAIN?", "SEE YOU AROUND {N}", "INTERESTING",
+                 "THE WATER IS COLD TONIGHT", "STRONG CURRENT TODAY", "HAVE WE MET {N}?"],
+}
+CHAT_ANSWERS = ["YES {N}", "NO WAY", "MAYBE", "I DO NOT KNOW {N}", "ASK THE TURTLE", "OF COURSE", "NOT TODAY {N}", "BEHIND THAT ROCK"]
+
 # Answers when the other one asked a question.
 ANSWERS = {
     "GREETED": ["NO FOOD HERE", "BY THE PLANTS {N}", "NOT TELLING", "JUST AROUND", "THEY ARE FINE {N}",
@@ -229,12 +244,14 @@ def fill(text, name, kind):
 def line(rng, event, kind, tr, feeling, name, said=None):
     """What an animal says, built from its situation, species, traits and feelings."""
     for _ in range(40):
-        table = SAY[event]
+        table = {"": CHAT[feeling]} if event == "CHAT" else SAY[event]
         choices = list(table[""])
         for key in tr + [feeling]:
             choices += table.get(key, []) * 2  # its traits and feelings come up more often
         if said and said.endswith("?") and event in ANSWERS and rng.random() < 0.75:
             choices = ANSWERS[event]
+        if said and said.endswith("?") and event == "CHAT" and rng.random() < 0.75:
+            choices = CHAT_ANSWERS
         parts = [fill(rng.choice(choices), name, kind)]
         sound, about_me = VOICE[kind]
         if rng.random() < 0.3:
@@ -274,8 +291,17 @@ def conversation(rng):
     feel_b = rng.choice(REPLY_FEELING.get(opener, FEELINGS))
     first = line(rng, opener, kind_a, tr_a, feel_a, b)
     second = line(rng, REPLY[opener], kind_b, tr_b, feel_b, a, said=first)
-    return [prompt(opener, kind_a, tr_a, feel_a, b) + first,
-            prompt(REPLY[opener], kind_b, tr_b, feel_b, a, said=first) + second]
+    lines = [prompt(opener, kind_a, tr_a, feel_a, b) + first,
+             prompt(REPLY[opener], kind_b, tr_b, feel_b, a, said=first) + second]
+    # Sometimes they carry on: each answers what the other just said.
+    speakers = [(kind_a, tr_a, feel_a, b), (kind_b, tr_b, feel_b, a)]
+    last, turn = second, 0
+    while turn < 2 and rng.random() < 0.6:
+        kind, tr, feel, to = speakers[turn % 2]
+        text = line(rng, "CHAT", kind, tr, feel, to, said=last)
+        lines.append(prompt("CHAT", kind, tr, feel, to, said=last) + text)
+        last, turn = text, turn + 1
+    return lines
 
 
 def main():

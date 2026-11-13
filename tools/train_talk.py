@@ -9,8 +9,11 @@ to run on the STM32 board itself.
 Afterwards the model is saved as talk_model.h: its numbers rounded to whole numbers from
 -127 to 127 (int8) with a scale for each row, which is how the board stores it.
 
-Usage: python3 tools/train_talk.py <corpus.txt> <output folder>
+Usage: python3 tools/train_talk.py <corpus.txt> <output folder> [previous talk_model.pt]
   TRAIN_MINUTES  how long to train for (default 30)
+
+Given the previous run's talk_model.pt, it carries on from there instead of starting
+over, so every training run builds on the last.
 """
 
 import json
@@ -115,6 +118,8 @@ SAMPLE_PROMPTS = [
     "EVOLVE ORCA BOLD LONER FRIEND IVY: ",
     "HATE SQUID ANGRY FICKLE ENEMY BOB: ",
     "MOURN RAY LOYAL CALM ENEMY JAX: ",
+    "CHAT SHARK ANGRY BOLD ENEMY BOB SAID YOU WILL REGRET THAT: ",
+    "CHAT TURTLE SOCIAL LOYAL FRIEND IVY SAID LETS FIND FOOD: ",
 ]
 
 
@@ -194,38 +199,103 @@ def reference(model, rounded, prompt, path):
         f.write(prompt.replace("\n", "") + "\n" + " ".join(f"{v:.6f}" for v in logits) + "\n")
 
 
+def load_from_header(model, path):
+    """Carry on from a talk_model.h (the board's rounded copy) when there is no full one."""
+    import re
+    text = open(path).read()
+    arrays = {}
+    for name, body in re.findall(r"static const (?:int8_t|float) (\w+)\[\d+\] = \{([^}]*)\}", text):
+        arrays[name] = np.array([float(v.rstrip("f")) for v in body.replace("\n", " ").split(",") if v.strip()], dtype=np.float32)
+
+    def rows(name, n_rows):
+        return arrays[name].reshape(n_rows, -1) * arrays[name + "_S"].reshape(n_rows, 1)
+
+    with torch.no_grad():
+        model.tok.weight.copy_(torch.tensor(rows("TALK_TOK", len(VOCAB))))
+        model.pos.weight.copy_(torch.tensor(rows("TALK_POS", CTX)))
+        for key, shape in [("QKV", (3 * D, D)), ("PROJ", (D, D)), ("FC", (FF, D)), ("OUT", (D, FF))]:
+            w = arrays["TALK_" + key].reshape(LAYERS, *shape) * arrays["TALK_" + key + "_S"].reshape(LAYERS, shape[0], 1)
+            for i, b in enumerate(model.blocks):
+                getattr(b, key.lower()).weight.copy_(torch.tensor(w[i]))
+        for key, attr in [("LN1", "ln1"), ("LN2", "ln2")]:
+            g, bias = arrays[f"TALK_{key}_G"].reshape(LAYERS, D), arrays[f"TALK_{key}_B"].reshape(LAYERS, D)
+            for i, b in enumerate(model.blocks):
+                getattr(b, attr).weight.copy_(torch.tensor(g[i]))
+                getattr(b, attr).bias.copy_(torch.tensor(bias[i]))
+        model.lnf.weight.copy_(torch.tensor(arrays["TALK_LNF_G"]))
+        model.lnf.bias.copy_(torch.tensor(arrays["TALK_LNF_B"]))
+
+
 def main():
     corpus, out = sys.argv[1], sys.argv[2]
+    resume = sys.argv[3] if len(sys.argv) > 3 else None
+    resume_header = sys.argv[4] if len(sys.argv) > 4 else None  # fallback: the board's rounded copy
+    resume_summary = sys.argv[5] if len(sys.argv) > 5 else None # ...and its training summary
     os.makedirs(out, exist_ok=True)
     budget = float(os.environ.get("TRAIN_MINUTES", "30")) * 60
     lines = open(corpus).read().strip().split("\n")
+    corpus_chars = sum(len(l) + 1 for l in lines)
+    corpus_words = sum(len(l.split()) for l in lines)
     random.shuffle(lines)
     cut = len(lines) // 20
     held_out, train = lines[:cut], lines[cut:]
 
     model = TalkModel()
     params = sum(p.numel() for p in model.parameters())
+    prior_steps, prior_minutes, peak = 0, 0.0, 3e-3
+    if resume and os.path.exists(resume):
+        try:
+            saved = torch.load(resume, map_location="cpu", weights_only=False)
+            model.load_state_dict(saved["model"])
+            prior_steps, prior_minutes = saved.get("steps", 0), saved.get("minutes", 0.0)
+            peak = 1e-3  # already trained: smaller steps
+            print(f"carrying on from {resume}: {prior_steps:,} steps, {prior_minutes:.0f} minutes so far")
+        except Exception as e:  # a different shape of model: start again
+            print(f"couldn't carry on from {resume} ({e}); starting from scratch")
+    elif resume_header and os.path.exists(resume_header):
+        try:
+            if f"#define TALK_D {D}\n" not in open(resume_header).read():
+                raise ValueError("a different size of model")
+            load_from_header(model, resume_header)
+            if resume_summary and os.path.exists(resume_summary):
+                old = json.load(open(resume_summary))
+                prior_steps, prior_minutes = old.get("total_steps", old.get("step", 0)), old.get("total_minutes", old.get("minutes", 0.0))
+            peak = 1e-3
+            print(f"carrying on from {resume_header} (the board's copy): {prior_steps:,} steps, {prior_minutes:.0f} minutes so far")
+        except Exception as e:
+            print(f"couldn't carry on from {resume_header} ({e}); starting from scratch")
     print(f"model: {params:,} numbers ({LAYERS} layers, {D} wide, {HEADS} heads, {CTX} characters of memory)")
-    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=0.01)
+    print(f"learning from {len(lines):,} lines, {corpus_words:,} words, {corpus_chars:,} characters")
+    opt = torch.optim.AdamW(model.parameters(), lr=peak, weight_decay=0.01)
     batch = 48
     data, check = batches(train, batch), batches(held_out, batch)
+    space = VOCAB.index(" ")
 
-    start, step, history, last_report = time.time(), 0, [], 0.0
+    start, step, history, last_report, last_snap = time.time(), 0, [], 0.0, -1e9
+    chars_seen, words_seen, timeline = 0, 0, []
     progress_path = os.path.join(out, "talk_progress.json")
+
+    def summary(state, samples):
+        minutes = round((time.time() - start) / 60, 1)
+        return {"state": state, "step": step, "minutes": minutes, "budget_minutes": round(budget / 60, 1),
+                "total_steps": prior_steps + step, "total_minutes": round(prior_minutes + minutes, 1),
+                "params": params, "layers": LAYERS, "width": D, "heads": HEADS, "memory": CTX, "batch": batch,
+                "chars_seen": chars_seen, "words_seen": words_seen,
+                "corpus_lines": len(lines), "corpus_words": corpus_words, "corpus_chars": corpus_chars,
+                "history": history[::max(1, len(history) // 300)], "samples": samples, "timeline": timeline,
+                "updated": int(time.time())}
 
     def report(state, samples):
         tmp = progress_path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"state": state, "step": step, "minutes": round((time.time() - start) / 60, 1),
-                       "budget_minutes": round(budget / 60, 1), "params": params, "history": history,
-                       "samples": samples, "updated": int(time.time())}, f)
+            json.dump(summary(state, samples), f)
         os.replace(tmp, progress_path)
 
     while True:
         elapsed = time.time() - start
         if elapsed > budget:
             break
-        lr = 3e-3 * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(1.0, elapsed / budget))))
+        lr = peak * (0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * min(1.0, elapsed / budget))))
         for g in opt.param_groups:
             g["lr"] = lr
         x, y = next(data)
@@ -235,34 +305,39 @@ def main():
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
         step += 1
+        chars_seen += x.numel()
+        words_seen += int((x == space).sum()) + x.shape[0]
         if step % 50 == 0:
             model.eval()
             with torch.no_grad():
                 x, y = next(check)
                 val = F.cross_entropy(model(x).view(-1, len(VOCAB)), y.view(-1)).item()
             model.train()
-            history.append([step, round(loss.item(), 4), round(val, 4)])
+            history.append([prior_steps + step, round(loss.item(), 4), round(val, 4)])
             if time.time() - last_report > 20:
                 model.eval()
-                samples = [[p, say(model, p)] for p in SAMPLE_PROMPTS[:4]]
+                samples = [[p, say(model, p)] for p in SAMPLE_PROMPTS[:5]]
                 model.train()
+                if time.time() - last_snap > max(60, budget / 8):  # a snapshot for "how its lines improved"
+                    timeline.append({"minutes": round((time.time() - start) / 60, 1), "step": prior_steps + step, "samples": samples[:3]})
+                    last_snap = time.time()
                 report("training", samples)
                 last_report = time.time()
                 print(f"step {step}: loss {loss.item():.3f}, held-out {val:.3f}, {elapsed / 60:.1f} min")
 
     model.eval()
     samples = [[p, say(model, p)] for p in SAMPLE_PROMPTS]
+    timeline.append({"minutes": round((time.time() - start) / 60, 1), "step": prior_steps + step, "samples": samples[:3]})
     report("done", samples)
-    for p, s in samples:
-        print(f"  {p}{s}")
+    for p, s_ in samples:
+        print(f"  {p}{s_}")
     rounded = export(model, os.path.join(out, "talk_model.h"))
     reference(model, rounded, SAMPLE_PROMPTS[1], os.path.join(out, "talk_reference.txt"))
-    final = history[-1] if history else [step, None, None]
+    torch.save({"model": model.state_dict(), "steps": prior_steps + step,
+                "minutes": prior_minutes + (time.time() - start) / 60}, os.path.join(out, "talk_model.pt"))
     with open(os.path.join(out, "talk_training.json"), "w") as f:
-        json.dump({"state": "done", "step": step, "minutes": round((time.time() - start) / 60, 1), "params": params,
-                   "layers": LAYERS, "width": D, "heads": HEADS, "memory": CTX, "loss": final[1], "held_out_loss": final[2],
-                   "history": history[::max(1, len(history) // 200)], "samples": samples, "corpus_lines": len(lines)}, f)
-    print(f"trained {step} steps; saved {out}/talk_model.h")
+        json.dump(summary("done", samples), f)
+    print(f"trained {step} steps ({prior_steps + step} in all); saved {out}/talk_model.h")
 
 
 if __name__ == "__main__":

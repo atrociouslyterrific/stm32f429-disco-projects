@@ -51,6 +51,8 @@ int main(int argc, char **argv) {
     "EVOLVE ORCA BOLD LONER FRIEND IVY: ",
     "MOURN RAY LOYAL CALM ENEMY JAX: ",
     "HUNGRY FRY TIMID EVEN STRANGER LEO: ",
+    "CHAT SHARK ANGRY BOLD ENEMY BOB SAID YOU WILL REGRET THAT: ",
+    "CHAT TURTLE SOCIAL LOYAL FRIEND IVY SAID LETS FIND FOOD: ",
   };
   for (unsigned k = 0; k < sizeof prompts / sizeof prompts[0]; k++) {
     char out[64];
