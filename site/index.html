@@ -130,7 +130,8 @@
   .node.gone { opacity: .6; border-style: dashed; }
   .node.unknown { opacity: .45; }
   .fam-wrap { position: relative; }
-  .ft-wrap { position: relative; overflow: auto; max-height: 620px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 0; }
+  .ft-wrap { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; cursor: grab; touch-action: none; user-select: none; }
+  .ft-wrap.dragging { cursor: grabbing; }
   .zoom { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
   .zoom button { padding: 4px 10px; min-width: 34px; }
   .zoom #tree-zoom { min-width: 3.2em; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -1981,7 +1982,7 @@ async function startTank() {
       row.forEach((r, n) => pos.set(r.id, [80 + (n + 0.5) * (W - 90) / row.length, top + g * ROW + 10]));
     });
 
-    const root = svg("svg", { class: "ft", width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img",
+    const root = svg("svg", { class: "ft", width: "100%", height: boxH, viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "xMidYMid meet", role: "img",
       "aria-label": "Family tree of " + animals.length + " animals over " + rows.length + " generations" });
     rows.forEach((row, g) => {
       if (!row) return;
@@ -2020,45 +2021,94 @@ async function startTank() {
     const living = animals.length - dead;
     $("tree-summary").textContent = note + animals.length + " animals over " + rows.length + (rows.length === 1 ? " generation" : " generations") +
       ", " + living + " alive now. Hover over one to light up its ancestors and descendants; click a living one to see its genes. " +
-      "Zoom with − and +, or pinch (Ctrl + scroll) over the tree.";
+      "Drag to move around; zoom with − and +, or pinch (Ctrl + scroll) over the tree.";
   }
 
-  // ----- zooming the tree -----
-  // "Fit" (the starting setting) shrinks the whole tree to the width of the box; − and +
-  // (or pinching, or Ctrl + scrolling over the tree) zoom out and in around that.
-  let treeRoot = null, treeSize = null, treeZoom = 1, treeFitting = true;
+  // ----- zooming and moving around the tree, like a map -----
+  // The tree sits in a fixed window. What the window shows is a rectangle of the tree
+  // (`view`, in the tree's own units, always the window's shape), so zooming makes
+  // everything bigger or smaller together. Drag to move; pinch, Ctrl + scroll, or − and +
+  // to zoom; Fit to see the whole tree again.
+  let treeRoot = null, treeSize = null, view = null, fitting = true, boxH = 300;
   const wrap = treeBox.parentElement;
-  // (before the page is laid out the box has no width yet: show it at full size until it does)
-  const fitZoom = () => wrap.clientWidth > 60 ? Math.max(0.15, Math.min(1, (wrap.clientWidth - 4) / treeSize.W)) : 1;
-  function applyZoom(keepX, keepY) {
+  const boxW = () => wrap.clientWidth || 700;
+  function setView(v) {
+    view = v;
+    treeRoot.setAttribute("viewBox", `${v.x.toFixed(1)} ${v.y.toFixed(1)} ${v.w.toFixed(1)} ${v.h.toFixed(1)}`);
+    $("tree-zoom").textContent = Math.round(boxW() / v.w * 100) + "%";
+  }
+  function fitView() {
+    fitting = true;
+    const bw = boxW();
+    // The window is as tall as the whole tree needs at this width (within limits).
+    boxH = Math.round(Math.max(220, Math.min(560, treeSize.H * Math.min(1, bw / treeSize.W) + 16)));
+    treeRoot.setAttribute("height", boxH);
+    const scale = Math.min(bw / treeSize.W, boxH / treeSize.H), w = bw / scale, h = boxH / scale;
+    setView({ x: (treeSize.W - w) / 2, y: (treeSize.H - h) / 2, w, h });
+  }
+  function applyZoom() { // after the tree is redrawn: keep the view, or fit again
     if (!treeRoot || !treeSize) return;
-    const before = treeRoot.getBoundingClientRect().width / treeSize.W || 1;
-    const z = treeFitting ? fitZoom() : treeZoom;
-    treeRoot.setAttribute("width", Math.round(treeSize.W * z));
-    treeRoot.setAttribute("height", Math.round(treeSize.H * z));
-    $("tree-zoom").textContent = Math.round(z * 100) + "%";
-    if (keepX !== undefined) { // keep the spot under the pointer where it was
-      wrap.scrollLeft = (wrap.scrollLeft + keepX) * (z / before) - keepX;
-      wrap.scrollTop = (wrap.scrollTop + keepY) * (z / before) - keepY;
-    }
+    treeRoot.setAttribute("height", boxH);
+    if (fitting || !view) fitView(); else setView(view);
   }
-  function zoomBy(factor, keepX, keepY) {
-    if (!treeSize) return;
-    const current = treeFitting ? fitZoom() : treeZoom;
-    treeZoom = Math.max(0.15, Math.min(3, current * factor));
-    treeFitting = false;
-    applyZoom(keepX, keepY);
+  // Zoom by `factor` around the point (cx, cy) in the window, in pixels.
+  function zoomAt(factor, cx, cy) {
+    if (!view) return;
+    const bw = boxW(), fitScale = Math.min(bw / treeSize.W, boxH / treeSize.H);
+    const scale = Math.max(fitScale * 0.5, Math.min(4, bw / view.w * factor));
+    const px = view.x + cx / bw * view.w, py = view.y + cy / boxH * view.h; // the tree point under the pointer
+    const w = bw / scale, h = boxH / scale;
+    fitting = false;
+    setView({ x: px - cx / bw * w, y: py - cy / boxH * h, w, h });
   }
-  $("tree-out").addEventListener("click", () => zoomBy(1 / 1.3, wrap.clientWidth / 2, wrap.clientHeight / 2));
-  $("tree-in").addEventListener("click", () => zoomBy(1.3, wrap.clientWidth / 2, wrap.clientHeight / 2));
-  $("tree-fit").addEventListener("click", () => { treeFitting = true; applyZoom(); wrap.scrollLeft = wrap.scrollTop = 0; });
-  wrap.addEventListener("wheel", (ev) => { // pinch on a trackpad, or Ctrl + scroll
+  $("tree-out").addEventListener("click", () => zoomAt(1 / 1.3, boxW() / 2, boxH / 2));
+  $("tree-in").addEventListener("click", () => zoomAt(1.3, boxW() / 2, boxH / 2));
+  $("tree-fit").addEventListener("click", () => fitView());
+  const inBox = (ev) => { const r = wrap.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+  wrap.addEventListener("wheel", (ev) => { // trackpad pinch (Chrome, Edge, Firefox) or Ctrl + scroll
     if (!ev.ctrlKey) return;
     ev.preventDefault();
-    const r = wrap.getBoundingClientRect();
-    zoomBy(Math.exp(-ev.deltaY * 0.01), ev.clientX - r.left, ev.clientY - r.top);
+    const [x, y] = inBox(ev);
+    zoomAt(Math.exp(-ev.deltaY * 0.01), x, y);
   }, { passive: false });
-  window.addEventListener("resize", () => { if (treeFitting) applyZoom(); });
+  let gestureScale = 1; // trackpad pinch in Safari
+  wrap.addEventListener("gesturestart", (ev) => { ev.preventDefault(); gestureScale = 1; });
+  wrap.addEventListener("gesturechange", (ev) => {
+    ev.preventDefault();
+    const [x, y] = inBox(ev);
+    zoomAt(ev.scale / gestureScale, x, y);
+    gestureScale = ev.scale;
+  });
+  // Dragging to move around, and pinching with two fingers on a touch screen.
+  const pointers = new Map();
+  let dragged = 0, pinchGap = 0;
+  wrap.addEventListener("pointerdown", (ev) => {
+    pointers.set(ev.pointerId, inBox(ev));
+    dragged = 0;
+    if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinchGap = Math.hypot(a[0] - b[0], a[1] - b[1]); }
+  });
+  wrap.addEventListener("pointermove", (ev) => {
+    if (!pointers.has(ev.pointerId) || !view) return;
+    const [x, y] = inBox(ev), [px, py] = pointers.get(ev.pointerId);
+    pointers.set(ev.pointerId, [x, y]);
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()], gap = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (pinchGap) zoomAt(gap / pinchGap, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+      pinchGap = gap;
+      dragged = 99;
+      return;
+    }
+    dragged += Math.abs(x - px) + Math.abs(y - py);
+    if (dragged < 4) return; // (a click, not a drag yet)
+    wrap.classList.add("dragging");
+    fitting = false;
+    setView({ ...view, x: view.x - (x - px) / boxW() * view.w, y: view.y - (y - py) / boxH * view.h });
+  });
+  const release = (ev) => { pointers.delete(ev.pointerId); pinchGap = 0; if (!pointers.size) wrap.classList.remove("dragging"); };
+  wrap.addEventListener("pointerup", release);
+  wrap.addEventListener("pointercancel", release);
+  wrap.addEventListener("click", (ev) => { if (dragged >= 4) ev.stopPropagation(); }, true); // a drag isn't a click
+  window.addEventListener("resize", () => { if (treeRoot && fitting) fitView(); });
 
   // Light up an animal's whole line: everyone it descends from, and everyone descended from it.
   function highlight(root, id) {
@@ -2083,9 +2133,9 @@ async function startTank() {
       el("div", r.gen ? "Parents: " + (mum ? mum.name : "?") + " and " + (dad ? dad.name : "?") : "No parents: it started the family"),
       el("div", (kids ? kids + (kids === 1 ? " child" : " children") : "No children yet") + " · " + (r.died === null ? "alive" : "died")));
     tip.style.display = "block";
-    const x = ev.clientX - host.left + treeBox.parentElement.scrollLeft;
-    tip.style.left = Math.max(0, Math.min(Math.max(treeBox.scrollWidth, host.width) - tip.offsetWidth, x + 14)) + "px";
-    tip.style.top = (ev.clientY - host.top + treeBox.parentElement.scrollTop + 14) + "px";
+    const x = ev.clientX - host.left;
+    tip.style.left = Math.max(0, Math.min(host.width - tip.offsetWidth, x + 14)) + "px";
+    tip.style.top = Math.min(host.height - tip.offsetHeight, ev.clientY - host.top + 14) + "px";
   }
 
   function familyTip(ev, f, chart) {

@@ -27,29 +27,32 @@ for (let n = 0; n < 4; n++) { await page.waitForTimeout(2000); await page.click(
 // Then skip ahead five minutes, so there are babies and several generations to check.
 for (let n = 0; n < 5; n++) await page.click("#skip");
 await page.waitForTimeout(1500);
-// The family tree's zoom: zooming out must make it smaller, and Fit must fit it in the box.
-const treeWidth = () => page.evaluate(() => { const t = document.querySelector("#tree svg"); return t ? +t.getAttribute("width") : 0; });
-const fitted = await treeWidth();
-await page.click("#tree-out");
-const zoomedOut = await treeWidth();
-await page.click("#tree-in"); await page.click("#tree-in"); await page.click("#tree-in");
-const zoomedIn = await treeWidth();
-await page.click("#tree-fit");
-const boxWidth = await page.evaluate(() => document.querySelector(".ft-wrap").clientWidth);
-const refitted = await treeWidth();
-// What is actually drawn on screen, not just the size asked for: zoom in, measure, photograph.
-await page.click("#tree-in"); await page.click("#tree-in");
-const drawn = await page.evaluate(() => {
-  const t = document.querySelector("#tree svg"), r = t.getBoundingClientRect(), node = t.querySelector(".ft-node circle").getBoundingClientRect();
-  return { asked: [+t.getAttribute("width"), +t.getAttribute("height")], drawn: [Math.round(r.width), Math.round(r.height)], dot: [Math.round(node.width), Math.round(node.height)] };
+// The family tree's zoom: everything must grow and shrink together (a dot stays round and
+// changes size), Fit must show the whole tree, and dragging must move the view.
+const measure = () => page.evaluate(() => {
+  const t = document.querySelector("#tree svg"), dots = [...t.querySelectorAll(".ft-node circle")].map(c => c.getBoundingClientRect());
+  const wrap = document.querySelector(".ft-wrap").getBoundingClientRect();
+  const inside = dots.filter(d => d.left >= wrap.left - 1 && d.right <= wrap.right + 1 && d.top >= wrap.top - 1 && d.bottom <= wrap.bottom + 1).length;
+  return { dot: [dots[0].width, dots[0].height], inside, all: dots.length, viewBox: t.getAttribute("viewBox"), label: document.getElementById("tree-zoom").textContent };
 });
-console.log("family tree zoomed in, asked for " + drawn.asked.join("x") + ", drawn at " + drawn.drawn.join("x") + ", one dot " + drawn.dot.join("x"));
+await page.click("#tree-fit");
+const fit = await measure();
+await page.click("#tree-out");
+const out = await measure();
+await page.click("#tree-in"); await page.click("#tree-in"); await page.click("#tree-in"); await page.click("#tree-in");
+const zin = await measure();
 await page.locator(".ft-wrap").screenshot({ path: process.argv[3].replace(/\.png$/, "-tree-zoomed.png") });
+const box = await page.locator(".ft-wrap").boundingBox();
+await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2 - 40, { steps: 6 }); await page.mouse.up();
+const moved = await measure();
 await page.click("#tree-fit");
 await page.locator(".ft-wrap").screenshot({ path: process.argv[3].replace(/\.png$/, "-tree-fit.png") });
-const drawnOk = Math.abs(drawn.drawn[0] - drawn.asked[0]) <= 2 && Math.abs(drawn.drawn[1] - drawn.asked[1]) <= 2 && Math.abs(drawn.dot[0] - drawn.dot[1]) <= 1;
-const zoomOk = zoomedOut < fitted && zoomedIn > fitted && refitted <= boxWidth && refitted === fitted && drawnOk;
-console.log("family tree zoom: fit " + fitted + "px, out " + zoomedOut + "px, in " + zoomedIn + "px, box " + boxWidth + "px");
+const round = (m) => Math.abs(m.dot[0] - m.dot[1]) < 0.6;
+const zoomOk = round(fit) && round(out) && round(zin) && out.dot[0] < fit.dot[0] && zin.dot[0] > fit.dot[0] * 1.5 &&
+  fit.inside === fit.all && moved.viewBox !== zin.viewBox;
+console.log("family tree zoom: one dot " + [fit, out, zin].map(m => m.dot.map(v => v.toFixed(1)).join("x") + " (" + m.label + ")").join(", ") +
+  "; whole tree inside at Fit: " + (fit.inside === fit.all) + "; dragging moves it: " + (moved.viewBox !== zin.viewBox));
 
 const facts = await page.evaluate(() => {
   const text = (id) => (document.getElementById(id) || {}).textContent || "";
