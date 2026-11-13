@@ -76,6 +76,21 @@
   progress { width: 100%; }
 
   /* headline numbers */
+  .dash { margin: 0 0 14px; }
+  .dash-bar { margin: 0 0 10px; }
+  .dash-label { font-size: .9rem; margin-bottom: 4px; }
+  .dash-track { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; }
+  .dash-fill { height: 100%; border-radius: 5px; background: var(--series-1); transition: width .6s; }
+  .dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+  .dash-tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .dash-tile .label { color: var(--muted); font-size: .78rem; }
+  .dash-tile .value { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .dash-tile .note { color: var(--muted); font-size: .74rem; }
+  ul.timeline { list-style: none; margin: 0; padding: 0; }
+  ul.timeline li { display: grid; grid-template-columns: 120px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .88rem; }
+  ul.timeline li:last-child { border-bottom: 0; }
+  ul.timeline .when { color: var(--muted); }
+  ul.timeline .what span { display: block; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
   .tile .label { color: var(--muted); font-size: .85rem; }
@@ -305,13 +320,18 @@
       having heard it. It learned from 120,000 practice lines written for each species and personality.</p>
     <p id="talk-live" class="pill busy" style="white-space:normal;border-radius:10px;padding:6px 12px;margin:0 0 12px" hidden></p>
     <p id="talk-summary" class="small" style="margin:0 0 8px">Loading…</p>
+    <div id="talk-dash" class="dash"></div>
     <div class="legend">
       <span><i style="border-color:var(--series-2)"></i>Lines it trains on</span>
       <span><i style="border-color:var(--series-1)"></i>Lines it never sees (the real test)</span>
     </div>
     <div class="chart" id="talk-chart"><svg role="img" aria-label="Line chart of how surprised the talk model is by the next character, falling as it trains" style="height:200px"></svg><div class="tip" id="talk-tip"></div></div>
     <p class="muted small" style="margin:6px 0 0">The chart shows how surprised the model is by the next character: lower means it has learned more.</p>
-    <h3>What it writes</h3>
+    <div id="talk-timeline-wrap" hidden>
+      <h3>How its lines improved</h3>
+      <ul id="talk-timeline" class="timeline"></ul>
+    </div>
+    <h3>What it writes now</h3>
     <ul id="talk-samples" class="talk-samples"></ul>
     <p class="muted small" style="margin:10px 0 0">It trains by itself when what it learns from changes. To give it more time,
       <a href="https://github.com/__REPO__/actions/workflows/train_talk.yml">start a talk training run on GitHub</a> and watch it here.</p>
@@ -406,6 +426,7 @@
     <h2>Training progress</h2>
     <p id="training-live" class="pill busy" style="white-space:normal;border-radius:10px;padding:6px 12px;margin:0 0 12px" hidden></p>
     <p class="lead" id="training-summary">Loading…</p>
+    <div id="brain-dash" class="dash"></div>
     <div class="legend">
       <span><i style="border-color:var(--series-2)"></i>Best fish</span>
       <span><i style="border-color:var(--series-1)"></i>Average fish</span>
@@ -874,8 +895,100 @@ let shownGenerations = -1;
 
 // `fish` is a training report: either the one built into this page's build, or a fresher
 // one fetched straight from a training run in progress.
+// ---------- training dashboards: a progress bar and the numbers that matter ----------
+
+function fmtDuration(seconds) {
+  seconds = Math.max(0, Math.round(seconds));
+  const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+  return h ? h + " h " + m + " min" : m ? m + " min " + String(s).padStart(2, "0") + " s" : s + " s";
+}
+function fmtCount(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + " billion";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + " million";
+  if (n >= 1e4) return Math.round(n / 1e3) + " thousand";
+  return Math.round(n).toLocaleString();
+}
+
+// Fill a dashboard: `bar` is { done, total, label }, `tiles` a list of [label, value, note].
+function dashboard(id, bar, tiles) {
+  const host = $(id);
+  host.replaceChildren();
+  if (bar) {
+    const wrap = el("div", undefined, "dash-bar"), track = el("div", undefined, "dash-track"), fill = el("div", undefined, "dash-fill");
+    const share = Math.max(0, Math.min(1, bar.done / Math.max(1e-9, bar.total)));
+    fill.style.width = (share * 100).toFixed(1) + "%";
+    track.append(fill);
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-valuenow", Math.round(share * 100));
+    track.setAttribute("aria-valuemin", 0);
+    track.setAttribute("aria-valuemax", 100);
+    wrap.append(el("div", bar.label, "dash-label"), track);
+    host.append(wrap);
+  }
+  const grid = el("div", undefined, "dash-tiles");
+  for (const [label, value, note] of tiles) {
+    if (value === undefined || value === null || value === "") continue;
+    const t = el("div", undefined, "dash-tile");
+    t.append(el("div", label, "label"), el("div", value, "value"), el("div", note || "", "note"));
+    grid.append(t);
+  }
+  host.append(grid);
+}
+
+function talkDashboard(t) {
+  const running = t.state === "training" && Date.now() / 1000 - t.updated < 120;
+  const secs = (t.minutes || 0) * 60, budget = (t.budget_minutes || t.minutes || 0) * 60;
+  const chars = t.chars_seen || (t.step || 0) * (t.batch || 48) * (t.memory || 128);
+  const words = t.words_seen || chars / 5.6;
+  const speed = secs ? chars / secs : 0;
+  dashboard("talk-dash",
+    running ? { done: secs, total: budget, label: "This training run: " + fmtDuration(secs) + " of " + fmtDuration(budget) +
+      " · about " + fmtDuration(budget - secs) + " to go" } :
+      { done: 1, total: 1, label: "Finished: trained for " + fmtDuration(secs) + (t.total_minutes ? " this run, " + fmtDuration(t.total_minutes * 60) + " in all" : "") },
+    [
+      ["Training steps", (t.step || 0).toLocaleString(), (t.total_steps ? t.total_steps.toLocaleString() + " in all, across runs" : "each step reads " + ((t.batch || 48) * (t.memory || 128)).toLocaleString() + " characters")],
+      ["Characters read", fmtCount(chars), "this run"],
+      ["Words read", fmtCount(words), "roughly, this run"],
+      ["Reading speed", speed ? fmtCount(speed) + "/s" : "", "characters a second, on GitHub"],
+      ["Practice lines", t.corpus_lines ? t.corpus_lines.toLocaleString() : "", t.corpus_words ? fmtCount(t.corpus_words) + " words to learn from" : "what it learns from"],
+      ["Model size", t.params ? fmtCount(t.params) : "", "numbers in the model (" + (t.layers || 3) + " layers)"],
+      ["Surprise now", t.history && t.history.length ? t.history[t.history.length - 1][2].toFixed(2) : "", "on lines it never trains on (lower is better)"],
+    ]);
+
+  // How its lines improved: the samples it wrote at different points in training.
+  const list = $("talk-timeline");
+  list.replaceChildren();
+  for (const snap of (t.timeline || []).slice(-6)) {
+    const li = el("li");
+    li.append(el("span", "after " + fmtDuration(snap.minutes * 60), "when"));
+    const lines = el("span", undefined, "what");
+    for (const [, line] of snap.samples.slice(0, 2)) lines.append(el("span", "“" + line + "”"));
+    li.append(lines);
+    list.append(li);
+  }
+  $("talk-timeline-wrap").hidden = !(t.timeline && t.timeline.length);
+}
+
+function brainDashboard(fish) {
+  if (!fish) return;
+  const running = fish.state === "training" && Date.now() / 1000 - fish.updated < 90;
+  dashboard("brain-dash",
+    running ? { done: fish.seconds, total: fish.budget, label: "This training run: " + fmtDuration(fish.seconds) + " of " + fmtDuration(fish.budget) +
+      " · about " + fmtDuration(fish.budget - fish.seconds) + " to go" } :
+      { done: 1, total: 1, label: "Finished: last run took " + fmtDuration(fish.seconds || 0) },
+    [
+      ["Generations", (fish.generations || 0).toLocaleString(), "in all, across every run"],
+      ["This run", fish.run_generations ? fish.run_generations.toLocaleString() : "", "generations"],
+      ["Speed", fish.seconds ? (fish.run_generations / fish.seconds).toFixed(1) + "/s" : "", "generations a second"],
+      ["Brains in each generation", "100", "the best 25 have children"],
+      ["Tank time simulated", fish.run_generations ? fmtDuration(fish.run_generations * 100 * 2 * (fish.steps_per_try || 1200) / 10 / 30) : "",
+        "of animals living, this run (10 per tank)"],
+    ]);
+}
+
 function showTraining(fish) {
   if (!fish) { $("training-summary").textContent = "No training results yet."; return; }
+  brainDashboard(fish);
   const running = fish.state === "training" && Date.now() / 1000 - fish.updated < 90;
   const live = $("training-live");
   live.hidden = !running;
@@ -937,6 +1050,7 @@ let talkShownStep = -1;
 
 function showTalk(t) {
   if (!t) return;
+  talkDashboard(t);
   const running = t.state === "training" && Date.now() / 1000 - t.updated < 120;
   $("talk-live").hidden = !running;
   if (running) $("talk-live").textContent = "Training on GitHub right now: step " + t.step.toLocaleString() + ", " +
