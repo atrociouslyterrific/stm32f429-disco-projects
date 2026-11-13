@@ -1,8 +1,8 @@
 // The Writer's language model: reads text one character at a time and writes more.
 // Trained on GitHub (tools/train_writer.py); the trained numbers are in lm_model.h. The same
 // code runs on the board and, compiled for web browsers, on the website.
-#ifndef LM_H
-#define LM_H
+#ifndef LM_H_INCLUDED
+#define LM_H_INCLUDED
 
 #include <stdint.h>
 
