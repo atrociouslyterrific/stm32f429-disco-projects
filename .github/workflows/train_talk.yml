@@ -11,7 +11,9 @@ on:
     inputs:
       minutes:
         description: "How many minutes to train for"
-        default: "30"
+        default: "45"
+  schedule:  # a safety net: if the chain of runs is ever broken, this starts it again
+    - cron: "23 * * * *"
   push:
     branches: [main]
     paths:  # what it learns from, or how it learns, changed (the build checks the talk code itself)
@@ -20,6 +22,7 @@ on:
 
 permissions:
   contents: write
+  actions: write  # to start the next training run
 
 concurrency:
   group: train-talk
@@ -58,7 +61,7 @@ jobs:
 
       - name: Train, reporting progress as it goes
         run: |
-          MINUTES="${{ github.event.inputs.minutes || '30' }}"
+          MINUTES="${{ github.event.inputs.minutes || '45' }}"
           case "$MINUTES" in ''|*[!0-9]*) MINUTES=30 ;; esac
           [ "$MINUTES" -gt 75 ] && MINUTES=75
           [ "$MINUTES" -lt 2 ] && MINUTES=2
@@ -104,3 +107,11 @@ jobs:
             gh release create fish-talk --title "Fish talk model" \
               --notes "The animals' language model, trained on GitHub: talk_model.h (for the board and the website) and the training summary. Replaced by every training run."
           gh release upload fish-talk work/talk_model.h work/talk_training.json work/talk_model.pt work/talk_reference.txt --clobber
+
+      # Training never stops by itself: when a run finishes, it starts the next one, which
+      # carries on from this one. To stop it, set the repository variable KEEP_TRAINING to
+      # "off" (Settings > Secrets and variables > Actions > Variables), or disable this
+      # workflow in the Actions tab.
+      - name: Keep training (start the next run)
+        if: success() && vars.KEEP_TRAINING != 'off'
+        run: gh workflow run train_talk.yml -f minutes=45

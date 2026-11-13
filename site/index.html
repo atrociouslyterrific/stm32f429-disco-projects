@@ -338,8 +338,9 @@
     </div>
     <h3>What it writes now</h3>
     <ul id="talk-samples" class="talk-samples"></ul>
-    <p class="muted small" style="margin:10px 0 0">It trains by itself when what it learns from changes. To give it more time,
-      <a href="https://github.com/__REPO__/actions/workflows/train_talk.yml">start a talk training run on GitHub</a> and watch it here.</p>
+    <p class="muted small" style="margin:10px 0 0">It keeps training on GitHub, one 45-minute run after another, each carrying on
+      from the last; after each run the board program and this page get the improved model.
+      <a href="https://github.com/__REPO__/actions/workflows/train_talk.yml">See the runs on GitHub</a>.</p>
   </div>
 
   <div class="card" id="evolution">
@@ -457,9 +458,8 @@
         </table>
       </div>
     </details>
-    <p class="muted small" style="margin:12px 0 0">Training runs by itself whenever the tank's rules change. To give the brains more time,
-      <a id="train-link" href="https://github.com/__REPO__/actions/workflows/train.yml">start a training run on GitHub</a>
-      (the “Run workflow” button) and watch it here.</p>
+    <p class="muted small" style="margin:12px 0 0">The brains keep training on GitHub, one 20-minute run after another, each carrying on
+      from the last. <a id="train-link" href="https://github.com/__REPO__/actions/workflows/train.yml">See the runs on GitHub</a>.</p>
     <h3>Before and after training</h3>
     <div class="scroll">
       <table id="training-table" hidden>

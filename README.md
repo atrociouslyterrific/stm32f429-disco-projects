@@ -93,3 +93,12 @@ happened, who is speaking (species and personality) and how they feel about who 
 talking to; the other animal then replies, having heard it. On the board the lines appear
 in the log; on the website as speech bubbles. The training workflow checks that the C code
 gives the same answers as the trained model before the model is used.
+
+## Training never stops
+
+Both trainers run continuously on GitHub: each run starts the next when it finishes (talk:
+45-minute runs; brains: 20-minute runs), carrying on from the last, and an hourly schedule
+restarts the chain if it is ever broken. After every run the build publishes the improved
+models to the board program and the website. To pause it, set the repository variable
+`KEEP_TRAINING` to `off` (Settings > Secrets and variables > Actions > Variables), or disable
+the training workflows in the Actions tab.

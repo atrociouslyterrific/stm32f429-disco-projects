@@ -10,7 +10,9 @@ on:
     inputs:
       minutes:
         description: "How many minutes to train for"
-        default: "4"
+        default: "20"
+  schedule:  # a safety net: if the chain of runs is ever broken, this starts it again
+    - cron: "41 * * * *"
   push:
     branches: [main]
     paths:  # the rules or the trainer changed: train under the new rules
@@ -21,6 +23,7 @@ on:
 
 permissions:
   contents: write  # to publish progress and keep the results
+  actions: write   # to start the next training run
 
 concurrency:
   group: train
@@ -48,7 +51,7 @@ jobs:
 
       - name: Train, reporting progress as it goes
         run: |
-          MINUTES="${{ github.event.inputs.minutes || '4' }}"
+          MINUTES="${{ github.event.inputs.minutes || '20' }}"
           case "$MINUTES" in ''|*[!0-9]*) MINUTES=4 ;; esac
           [ "$MINUTES" -gt 20 ] && MINUTES=20
           [ "$MINUTES" -lt 1 ] && MINUTES=1
@@ -88,3 +91,11 @@ jobs:
             gh release create fish-brains --title "Fish brains" \
               --notes "The fish brains trained on GitHub: the whole population (to carry on from next time), the ten brains the board uses, and the training summary. Replaced by every training run."
           gh release upload fish-brains work/population.bin work/fish_brains.h work/fish_training.json --clobber
+
+      # Training never stops by itself: when a run finishes, it starts the next one, which
+      # carries on from this one. To stop it, set the repository variable KEEP_TRAINING to
+      # "off" (Settings > Secrets and variables > Actions > Variables), or disable this
+      # workflow in the Actions tab.
+      - name: Keep training (start the next run)
+        if: success() && vars.KEEP_TRAINING != 'off'
+        run: gh workflow run train.yml -f minutes=20
