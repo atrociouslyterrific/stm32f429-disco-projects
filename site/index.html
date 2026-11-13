@@ -1993,7 +1993,8 @@ async function startTank() {
   // (or pinching, or Ctrl + scrolling over the tree) zoom out and in around that.
   let treeRoot = null, treeSize = null, treeZoom = 1, treeFitting = true;
   const wrap = treeBox.parentElement;
-  const fitZoom = () => Math.min(1, (wrap.clientWidth - 4) / treeSize.W);
+  // (before the page is laid out the box has no width yet: show it at full size until it does)
+  const fitZoom = () => wrap.clientWidth > 60 ? Math.max(0.15, Math.min(1, (wrap.clientWidth - 4) / treeSize.W)) : 1;
   function applyZoom(keepX, keepY) {
     if (!treeRoot || !treeSize) return;
     const before = treeRoot.getBoundingClientRect().width / treeSize.W || 1;
