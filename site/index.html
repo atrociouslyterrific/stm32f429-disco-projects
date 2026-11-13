@@ -128,7 +128,10 @@
   .node.gone { opacity: .6; border-style: dashed; }
   .node.unknown { opacity: .45; }
   .fam-wrap { position: relative; }
-  .ft-wrap { position: relative; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; padding: 6px 0; }
+  .ft-wrap { position: relative; overflow: auto; max-height: 620px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 0; }
+  .zoom { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+  .zoom button { padding: 4px 10px; min-width: 34px; }
+  .zoom #tree-zoom { min-width: 3.2em; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
   .ft { display: block; }
   .ft text { font: 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; fill: var(--muted); }
   .ft .ft-row { font-weight: 600; }
@@ -398,6 +401,12 @@
     <div class="tank-bar" style="justify-content:flex-start;margin-top:0">
       <label for="tree-family">Show:</label>
       <select id="tree-family"></select>
+      <span class="zoom" role="group" aria-label="Zoom the family tree">
+        <button id="tree-out" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+        <span id="tree-zoom" class="small">100%</span>
+        <button id="tree-in" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+        <button id="tree-fit" type="button" title="Show the whole tree at once">Fit</button>
+      </span>
     </div>
     <p id="tree-summary" class="small" style="margin:0 0 8px"></p>
     <div class="ft-wrap"><div id="tree"></div><div class="tip" id="tree-tip"></div></div>
@@ -1969,11 +1978,51 @@ async function startTank() {
       nodes.append(g);
     }
     treeBox.replaceChildren(root);
+    treeRoot = root;
+    treeSize = { W, H };
+    applyZoom();
     if (treeHighlight) highlight(root, treeHighlight);
     const living = animals.length - dead;
     $("tree-summary").textContent = note + animals.length + " animals over " + rows.length + (rows.length === 1 ? " generation" : " generations") +
-      ", " + living + " alive now. Hover over one to light up its ancestors and descendants; click a living one to see its genes.";
+      ", " + living + " alive now. Hover over one to light up its ancestors and descendants; click a living one to see its genes. " +
+      "Zoom with − and +, or pinch (Ctrl + scroll) over the tree.";
   }
+
+  // ----- zooming the tree -----
+  // "Fit" (the starting setting) shrinks the whole tree to the width of the box; − and +
+  // (or pinching, or Ctrl + scrolling over the tree) zoom out and in around that.
+  let treeRoot = null, treeSize = null, treeZoom = 1, treeFitting = true;
+  const wrap = treeBox.parentElement;
+  const fitZoom = () => Math.min(1, (wrap.clientWidth - 4) / treeSize.W);
+  function applyZoom(keepX, keepY) {
+    if (!treeRoot || !treeSize) return;
+    const before = treeRoot.getBoundingClientRect().width / treeSize.W || 1;
+    const z = treeFitting ? fitZoom() : treeZoom;
+    treeRoot.setAttribute("width", Math.round(treeSize.W * z));
+    treeRoot.setAttribute("height", Math.round(treeSize.H * z));
+    $("tree-zoom").textContent = Math.round(z * 100) + "%";
+    if (keepX !== undefined) { // keep the spot under the pointer where it was
+      wrap.scrollLeft = (wrap.scrollLeft + keepX) * (z / before) - keepX;
+      wrap.scrollTop = (wrap.scrollTop + keepY) * (z / before) - keepY;
+    }
+  }
+  function zoomBy(factor, keepX, keepY) {
+    if (!treeSize) return;
+    const current = treeFitting ? fitZoom() : treeZoom;
+    treeZoom = Math.max(0.15, Math.min(3, current * factor));
+    treeFitting = false;
+    applyZoom(keepX, keepY);
+  }
+  $("tree-out").addEventListener("click", () => zoomBy(1 / 1.3, wrap.clientWidth / 2, wrap.clientHeight / 2));
+  $("tree-in").addEventListener("click", () => zoomBy(1.3, wrap.clientWidth / 2, wrap.clientHeight / 2));
+  $("tree-fit").addEventListener("click", () => { treeFitting = true; applyZoom(); wrap.scrollLeft = wrap.scrollTop = 0; });
+  wrap.addEventListener("wheel", (ev) => { // pinch on a trackpad, or Ctrl + scroll
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    const r = wrap.getBoundingClientRect();
+    zoomBy(Math.exp(-ev.deltaY * 0.01), ev.clientX - r.left, ev.clientY - r.top);
+  }, { passive: false });
+  window.addEventListener("resize", () => { if (treeFitting) applyZoom(); });
 
   // Light up an animal's whole line: everyone it descends from, and everyone descended from it.
   function highlight(root, id) {
@@ -1999,8 +2048,8 @@ async function startTank() {
       el("div", (kids ? kids + (kids === 1 ? " child" : " children") : "No children yet") + " · " + (r.died === null ? "alive" : "died")));
     tip.style.display = "block";
     const x = ev.clientX - host.left + treeBox.parentElement.scrollLeft;
-    tip.style.left = Math.max(0, Math.min(treeBox.scrollWidth - tip.offsetWidth, x + 14)) + "px";
-    tip.style.top = (ev.clientY - host.top + 14) + "px";
+    tip.style.left = Math.max(0, Math.min(Math.max(treeBox.scrollWidth, host.width) - tip.offsetWidth, x + 14)) + "px";
+    tip.style.top = (ev.clientY - host.top + treeBox.parentElement.scrollTop + 14) + "px";
   }
 
   function familyTip(ev, f, chart) {

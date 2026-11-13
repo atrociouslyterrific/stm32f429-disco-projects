@@ -27,6 +27,18 @@ for (let n = 0; n < 4; n++) { await page.waitForTimeout(2000); await page.click(
 // Then skip ahead five minutes, so there are babies and several generations to check.
 for (let n = 0; n < 5; n++) await page.click("#skip");
 await page.waitForTimeout(1500);
+// The family tree's zoom: zooming out must make it smaller, and Fit must fit it in the box.
+const treeWidth = () => page.evaluate(() => { const t = document.querySelector("#tree svg"); return t ? +t.getAttribute("width") : 0; });
+const fitted = await treeWidth();
+await page.click("#tree-out");
+const zoomedOut = await treeWidth();
+await page.click("#tree-in"); await page.click("#tree-in"); await page.click("#tree-in");
+const zoomedIn = await treeWidth();
+await page.click("#tree-fit");
+const boxWidth = await page.evaluate(() => document.querySelector(".ft-wrap").clientWidth);
+const refitted = await treeWidth();
+const zoomOk = zoomedOut < fitted && zoomedIn > fitted && refitted <= boxWidth && refitted === fitted;
+console.log("family tree zoom: fit " + fitted + "px, out " + zoomedOut + "px, in " + zoomedIn + "px, box " + boxWidth + "px");
 
 const facts = await page.evaluate(() => {
   const text = (id) => (document.getElementById(id) || {}).textContent || "";
@@ -76,6 +88,7 @@ if (facts.flashButtons !== 3) problems.push("expected 3 Flash buttons");
 if (!/Right now:/.test(facts.evolutionSummary)) problems.push("the evolution diagram didn't fill in");
 if (facts.genePoolRows < 9) problems.push("the gene pool has " + facts.genePoolRows + " rows");
 if (facts.newerBanner) problems.push("the page thinks it is out of date");
+if (!zoomOk) problems.push("the family tree's zoom doesn't work");
 if (new Set(facts.treeNames).size !== facts.treeNames.length) problems.push("two animals in the family tree share a name");
 delete facts.treeNames;
 if (facts.treeNodes < 12) problems.push("the family tree has " + facts.treeNodes + " animals in it after five minutes");
